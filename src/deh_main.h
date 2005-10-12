@@ -1,7 +1,7 @@
 // Emacs style mode select   -*- C++ -*- 
 //-----------------------------------------------------------------------------
 //
-// $Id: deh_main.h 160 2005-10-03 21:39:39Z fraggle $
+// $Id: deh_main.h 190 2005-10-12 21:52:01Z fraggle $
 //
 // Copyright(C) 2005 Simon Howard
 //
@@ -21,6 +21,9 @@
 // 02111-1307, USA.
 //
 // $Log$
+// Revision 1.3  2005/10/12 21:52:01  fraggle
+// doomfeatures.h to allow certain features to be disabled in the build
+//
 // Revision 1.2  2005/10/03 21:39:39  fraggle
 // Dehacked text substitutions
 //
@@ -38,6 +41,7 @@
 #define DEH_MAIN_H
 
 #include "doomtype.h"
+#include "doomfeatures.h"
 
 void DEH_CheckCommandLine(void);
 
@@ -47,7 +51,15 @@ boolean DEH_ParseAssignment(char *line, char **variable_name, char **value);
 //
 // Used to do dehacked text substitutions throughout the program
 
+#ifdef FEATURE_DEHACKED
+
 char *DEH_String(char *s);
+
+#else
+
+#define DEH_String(x) (x)
+
+#endif
 
 #endif /* #ifndef DEH_MAIN_H */
 

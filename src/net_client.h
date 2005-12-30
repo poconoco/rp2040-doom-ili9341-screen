@@ -1,7 +1,7 @@
 // Emacs style mode select   -*- C++ -*- 
 //-----------------------------------------------------------------------------
 //
-// $Id: net_client.h 233 2005-12-29 21:29:55Z fraggle $
+// $Id: net_client.h 235 2005-12-30 18:58:22Z fraggle $
 //
 // Copyright(C) 2005 Simon Howard
 //
@@ -21,6 +21,11 @@
 // 02111-1307, USA.
 //
 // $Log$
+// Revision 1.3  2005/12/30 18:58:22  fraggle
+// Fix client code to correctly send reply to server on connection.
+// Add "waiting screen" while waiting for the game to start.
+// Hook in the new networking code into the main game code.
+//
 // Revision 1.2  2005/12/29 21:29:55  fraggle
 // Working client connect code
 //
@@ -38,6 +43,7 @@
 #include "net_defs.h"
 
 boolean NET_ClientConnect(net_addr_t *addr);
+void NET_ClientRun(void);
 
 #endif /* #ifndef NET_CLIENT_H */
 

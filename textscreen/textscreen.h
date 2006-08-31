@@ -31,6 +31,7 @@
 #include "txt_button.h"
 #include "txt_checkbox.h"
 #include "txt_desktop.h"
+#include "txt_dropdown.h"
 #include "txt_inputbox.h"
 #include "txt_label.h"
 #include "txt_radiobutton.h"

@@ -33,6 +33,7 @@
 #include "txt_label.h"
 #include "txt_radiobutton.h"
 #include "txt_separator.h"
+#include "txt_spinctrl.h"
 #include "txt_strut.h"
 #include "txt_table.h"
 #include "txt_widget.h"

@@ -64,6 +64,7 @@ extern int autoadjust_video_settings;
 extern boolean screenvisible;
 extern int screenmultiply;
 extern int fullscreen;
+extern int aspect_ratio_correct;
 extern boolean grabmouse;
 extern float mouse_acceleration;
 extern int mouse_threshold;

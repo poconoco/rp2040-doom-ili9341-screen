@@ -57,6 +57,8 @@ void M_SetConfigDir(void);
 
 void M_MakeDirectory(char *dir);
 
+boolean M_FileExists(char *file);
+
 
 int
 M_DrawText

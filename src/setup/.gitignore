@@ -1,6 +1,7 @@
-Makefile.in
 Makefile
+Makefile.in
 .deps
-chocolate-setup
 *.rc
+chocolate-doom
+chocolate-server
 *.exe

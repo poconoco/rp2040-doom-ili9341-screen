@@ -23,27 +23,71 @@
 //
 //-----------------------------------------------------------------------------
 
+#include "config.h"
+
+#include <stdlib.h>
+
 #include "opl.h"
+#include "opl_internal.h"
+
+#ifdef HAVE_IOPERM
+extern opl_driver_t opl_linux_driver;
+#endif
+
+static opl_driver_t *drivers[] =
+{
+#ifdef HAVE_IOPERM
+    &opl_linux_driver,
+#endif
+    NULL
+};
+
+static opl_driver_t *driver = NULL;
 
 int OPL_Init(unsigned int port_base)
 {
-    // TODO
-    return 1;
+    int i;
+
+    // Try drivers until we find a working one:
+
+    for (i=0; drivers[i] != NULL; ++i)
+    {
+        if (drivers[i]->init_func(port_base))
+        {
+            driver = drivers[i];
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 void OPL_Shutdown(void)
 {
-    // TODO
+    if (driver != NULL)
+    {
+        driver->shutdown_func();
+        driver = NULL;
+    }
 }
 
 void OPL_WritePort(opl_port_t port, unsigned int value)
 {
-    // TODO
+    if (driver != NULL)
+    {
+        driver->write_port_func(port, value);
+    }
 }
 
 unsigned int OPL_ReadPort(opl_port_t port)
 {
-    // TODO
-    return 0;
+    if (driver != NULL)
+    {
+        return driver->read_port_func(port);
+    }
+    else
+    {
+        return 0;
+    }
 }
 

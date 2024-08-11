@@ -368,7 +368,7 @@ Z_MallocNoUser
     
     // found a block big enough
     extra = memblock_size(base) - size;
-    
+
     if (extra >  MINFRAGMENT)
     {
         // there will be a free fragment after the allocated block

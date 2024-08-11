@@ -751,7 +751,12 @@ static inline uint draw_vpatch(uint16_t *dest, patch_t *patch, vpatchlist_t *vp,
 #if PICO_ON_DEVICE
                 if (patch == stbar) {
                     static const uint8_t *cached_data;
+#if PICO_RP2040
                     static uint32_t __scratch_x("data_cache") data_cache[41];
+#else
+                    // short of scratch space on RP2350 for some reason, so lets put this in main RAM
+                    static uint32_t data_cache[41];
+#endif
                     int i = 0;
                     uint32_t *d = (uint32_t *) dest;
 #define DMA_CHANNEL 11
@@ -772,14 +777,20 @@ static inline uint draw_vpatch(uint16_t *dest, patch_t *patch, vpatchlist_t *vp,
                         //                        once = true;
                         xip_ctrl_hw->stream_ctr = 0;
                         // workaround yucky bug
+#if !PICO_RP2350
                         (void) *(io_rw_32 *) XIP_NOCACHE_NOALLOC_BASE;
                         xip_ctrl_hw->stream_fifo;
+#endif
                         dma_channel_abort(DMA_CHANNEL);
                         dma_channel_config c = dma_channel_get_default_config(DMA_CHANNEL);
                         channel_config_set_read_increment(&c, false);
                         channel_config_set_write_increment(&c, true);
                         channel_config_set_dreq(&c, DREQ_XIP_STREAM);
+#if !PICO_RP2350
                         dma_channel_set_read_addr(DMA_CHANNEL, (void *) XIP_AUX_BASE, false);
+#else
+                        dma_channel_set_read_addr(DMA_CHANNEL, &xip_ctrl_hw->stream_fifo, false);
+#endif
                         dma_channel_set_config(DMA_CHANNEL, &c, false);
                         cached_data = data + SCREENWIDTH / 2;
                         xip_ctrl_hw->stream_addr = (uintptr_t) cached_data;
@@ -1067,7 +1078,11 @@ void __scratch_x("scanlines") fill_scanlines() {
 static void __not_in_flash_func(free_buffer_callback)() {
 //    irq_set_pending(LOW_PRIO_IRQ);
     // ^ is in flash by default
+#if !PICO_RP2350
     *((io_rw_32 *) (PPB_BASE + M0PLUS_NVIC_ISPR_OFFSET)) = 1u << LOW_PRIO_IRQ;
+#else
+    nvic_hw->ispr[LOW_PRIO_IRQ / 32] = 1 << (LOW_PRIO_IRQ % 32);
+#endif
 }
 #endif
 
@@ -1100,6 +1115,9 @@ static void core1() {
     }
 }
 
+#if PICO_RP2350
+#include "hardware/structs/accessctrl.h"
+#endif
 void I_InitGraphics(void)
 {
     stbar = resolve_vpatch_handle(VPATCH_STBAR);
@@ -1112,6 +1130,9 @@ void I_InitGraphics(void)
     sem_acquire_blocking(&core1_launch);
 #if USE_ZONE_FOR_MALLOC
     disallow_core1_malloc = true;
+#endif
+#if PICO_RP2350
+    hw_set_bits(&accessctrl_hw->xip_ctrl, ACCESSCTRL_PASSWORD_BITS | 0xff);
 #endif
     initialized = true;
 }
@@ -1179,6 +1200,7 @@ int I_GetPaletteIndex(int r, int g, int b)
 
 #if !NO_USE_ENDDOOM
 void I_Endoom(byte *endoom_data) {
+#if SUPPORT_TEXT
     uint32_t size;
     uint8_t *wa = pd_get_work_area(&size);
     assert(size >=TEXT_SCANLINE_BUFFER_TOTAL_WORDS * 4 + 80*25*2 + 4096);
@@ -1210,6 +1232,7 @@ void I_Endoom(byte *endoom_data) {
     }
 #endif
     text_screen_data = text_screen_cpy;
+#endif
 }
 #endif
 

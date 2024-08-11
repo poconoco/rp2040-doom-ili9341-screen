@@ -30,6 +30,7 @@
 #include "pico/sem.h"
 #include "pico/multicore.h"
 #if PICO_ON_DEVICE
+#include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #endif
 #endif
@@ -39,7 +40,9 @@
 #include "doomtype.h"
 #include "i_system.h"
 #include "m_argv.h"
-
+#if PICO_RP2350
+#include "hardware/structs/qmi.h"
+#endif
 //
 // D_DoomMain()
 // Not a globally visible function, just included for source reference,
@@ -61,8 +64,19 @@ int main(int argc, char **argv)
     myargv = argv;
 #endif
 #if PICO_ON_DEVICE
+#if PICO_RP2350
+    uint clkdiv = 3;
+    uint rxdelay = 2;
+    hw_write_masked(
+            &qmi_hw->m[0].timing,
+            ((clkdiv << QMI_M0_TIMING_CLKDIV_LSB) & QMI_M0_TIMING_CLKDIV_BITS) |
+            ((rxdelay << QMI_M0_TIMING_RXDELAY_LSB) & QMI_M0_TIMING_RXDELAY_BITS),
+            QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS
+    );
+#endif
     vreg_set_voltage(VREG_VOLTAGE_1_30);
-    // todo pause? is this the cause of the cold start isue?
+    busy_wait_us(1000);
+    // todo pause? is this the cause of the cold start issue?
     set_sys_clock_khz(270000, true);
 #if !USE_PICO_NET
     // debug ?

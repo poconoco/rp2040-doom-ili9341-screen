@@ -194,15 +194,27 @@ typedef uint8_t floor_ceiling_clip_t;
 
 #if PICO_ON_DEVICE
 #include <assert.h>
+#if !PICO_RP2350
+#define SHORTPTR_BASE 0x20000000
+#else
+#define SHORTPTR_BASE 0x20030000
+#endif
 typedef uint16_t shortptr_t;
 static inline void *shortptr_to_ptr(shortptr_t s) {
-    return s ? (void *)(0x20000000 + s * 4) : NULL;
+    return s ? (void *)(SHORTPTR_BASE + s * 4) : NULL;
 }
 static inline shortptr_t ptr_to_shortptr(void *p) {
     if (!p) return 0;
     uintptr_t v = (uintptr_t)p;
-    assert(v>=0x20000004 && v <= 0x20040000 && !(v&3));
+    if (!(v>=SHORTPTR_BASE+4 && v < SHORTPTR_BASE + 0x40000 && !(v&3))) {
+        asm("bkpt #0");
+    }
+    assert(v>=SHORTPTR_BASE+4 && v < SHORTPTR_BASE + 0x40000 && !(v&3));
+#if SHORTPTR_BASE == 0x20000000
     return (shortptr_t) ((v << 14u)>>16u);
+#else
+    return (shortptr_t) ((v - SHORTPTR_BASE) >> 2);
+#endif
 }
 #else
 typedef void *shortptr_t;

@@ -1,13 +1,13 @@
-# RP2040 Doom
+# RP2040 (+RP2350) Doom
 
-This is a port of Doom for RP2040 devices, derived from [Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom).
+This is a port of Doom for RP2040 / RP2350 devices, derived from [Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom).
 
-Significant changes have been made to support running on the RP2040 device, but particularly to support running the 
+Significant changes have been made to support running on the RP2xxx device, but particularly to support running the 
 entire shareware `DOOM1.WAD` which is 4M big on a Raspberry Pi Pico with only 2M flash!
 
 You can read many details on this port in the blog post [here](https://kilograham.github.io/rp2040-doom/).
 
-Note that a hopefully-fully-functional `chocolate-doom` executable is buildable from this RP2040 code base as a 
+Note that a hopefully-fully-functional `chocolate-doom` executable is buildable from this RP2xxx code base as a 
 means of 
 verification that everything still works, but whilst they can still be built, Hexen, Strife and Heretic are almost 
 certainly broken, so are not built by default.
@@ -101,8 +101,7 @@ pico-sdk requisites (e.g.
 [documentation](https://datasheets.raspberrypi.com/pico/getting-started-with-pico.pdf). I have been building against 
 the `develop` branch of `pico-sdk`, so I recommend that..
 
-**NOTE: I was building with arm-none-eabi-gcc 9.2.1 .. it seems like other versions may cause problems with binary 
-size, so stick with that for now.** 
+**NOTE: I am building with arm-none-eabi-gcc 13.2.rel1 .. whilst other versions may work, changes in compiler version may affect the binary size which, being tight, can cause problems (either link failure, or you may see stack overflow in the form of color palette corruption). Particularly I know tjhat arm-none-eabi-gcc 10.x versions don't work well.**
 
 For USB keyboard input support, RP2040 Doom currently uses a modified version of TinyUSB included as a submodule. 
 Make sure you have initialized this submodule via `git submodule update --init` 

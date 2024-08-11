@@ -317,7 +317,11 @@ const char *type_name(pd_column column) {
 #endif
 }
 
+#if !PICO_RP2350
 #define RENDER_COL_MAX 3600
+#else
+#define RENDER_COL_MAX 7200
+#endif
 static uint8_t __aligned(4) list_buffer[RENDER_COL_MAX * sizeof(pd_column) + 64*64]; // extra 64*64 is for one flat
 static uint8_t *last_list_buffer_limit = list_buffer + sizeof(list_buffer);
 //static_assert(text_font_cpy > list_buffer, "");
@@ -817,7 +821,12 @@ void pd_init() {
     sem_init(&core1_done, 0, 1);
 #if PICO_ON_DEVICE
     static_assert(sizeof(vpatchlists_t) < 0xc00, "");
+#if !PICO_RP2350
     vpatchlists = (vpatchlists_t *)(USBCTRL_DPRAM_BASE + 0x400);
+#else
+    static_assert(SRAM_SCRATCH_X_BASE - 0xc00 >= SHORTPTR_BASE + 0x4000, ""); // avoid potential heap locations
+    vpatchlists = (vpatchlists_t *)(SRAM_SCRATCH_X_BASE - 0xc00);
+#endif
 #else
     vpatchlists = (vpatchlists_t*)malloc(sizeof(vpatchlists_t));
 #endif

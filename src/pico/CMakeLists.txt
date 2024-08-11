@@ -34,7 +34,9 @@ target_compile_definitions(common_pico INTERFACE
         NO_USE_MOUSE=1
         PICO_AUDIO_I2S_PIO=1
         PICO_AUDIO_I2S_DMA_IRQ=1
-        )
+        PICO_USE_SW_SPIN_LOCKS=0
+        PICO_USE_STACK_GUARDS=0 # todo we can actually use these sensibly, but right now we do overflow!
+)
 
 pico_generate_pio_header(common_pico ${CMAKE_CURRENT_LIST_DIR}/video_doom.pio)
 target_link_libraries(common_pico INTERFACE pico_stdlib pico_multicore pico_scanvideo_dpi)

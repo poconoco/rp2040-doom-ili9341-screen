@@ -9,9 +9,6 @@
 #include "picoflash.h"
 #include "pico/bootrom.h"
 
-#include "hardware/structs/ssi.h"
-#include "hardware/structs/ioqspi.h"
-
 #define FLASH_BLOCK_ERASE_CMD 0xd8
 
 //-----------------------------------------------------------------------------
@@ -23,8 +20,13 @@
 #define BOOT2_SIZE_WORDS 64
 
 static void __no_inline_not_in_flash_func(flash_init_boot2_copyout)(uint32_t boot2_copyout[BOOT2_SIZE_WORDS]) {
+#if PICO_RP2040
+    const volatile uint32_t *copy_from = (uint32_t *)XIP_BASE;
+#else
+    const volatile uint32_t *copy_from = (uint32_t *)BOOTRAM_BASE;
+#endif
     for (int i = 0; i < BOOT2_SIZE_WORDS; ++i)
-        boot2_copyout[i] = ((uint32_t *)XIP_BASE)[i];
+        boot2_copyout[i] = copy_from[i];
     __compiler_memory_barrier();
 }
 

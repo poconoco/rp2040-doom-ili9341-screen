@@ -142,6 +142,16 @@ static byte *AutoAllocMemory(int *size, int default_ram, int min_ram)
         extern char __end__;
         zonemem = (uint8_t *)(((uintptr_t)&__end__)&~3);
         *size = ((uint8_t *)SRAM4_BASE) - zonemem;
+#if !PICO_RP2350
+        *size = ((uint8_t *)SRAM4_BASE) - zonemem;
+#else
+        // because of our shortptrs, heap cannot be bigger than 256K
+        // todo limit this to any static stuff at the end
+        *size = ((uint8_t *)SHORTPTR_BASE + 0x40000) - zonemem;
+        if (SHORTPTR_BASE >= (uintptr_t)zonemem) {
+            I_Error("SHORTPTR_BASE bad");
+        }
+#endif
 #else
 #error use zone for malloc only on device
 #endif

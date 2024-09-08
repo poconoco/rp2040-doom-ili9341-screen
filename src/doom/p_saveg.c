@@ -2655,6 +2655,9 @@ const uint8_t *get_end_of_flash(void) {
         }
 //        printf("FLASH SPACE %p -> %p\n", whd_map_base + whdheader->size, end_of_flash);
     }
+#if PICO_RP2350_A2_SUPPORTED
+    end_of_flash -= 4096; // due to errata E10 workaround, don't use the last flash sector
+#endif
     return end_of_flash;
 }
 

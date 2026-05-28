@@ -25,10 +25,27 @@
 
 // Screen width and height.
 
+#ifdef ILI9341
 #define SCREENWIDTH  320
 #define SCREENHEIGHT 200
+#endif
+#ifdef ST7789
+#define SCREENWIDTH  320
+#define SCREENHEIGHT 200
+#endif
+
+#ifndef SCREENWIDTH
+#define SCREENWIDTH  320
+#define SCREENHEIGHT 200
+#endif
+
 #if DOOM_TINY
+#ifdef ILI9341
 #define MAIN_VIEWHEIGHT (SCREENHEIGHT - 32 /* ST_HEIGHT */)
+#endif
+#ifdef ST7789
+#define MAIN_VIEWHEIGHT (SCREENHEIGHT - 32 /* ST_HEIGHT */)
+#endif
 #endif
 
 // Screen height used when aspect_ratio_correct=true.

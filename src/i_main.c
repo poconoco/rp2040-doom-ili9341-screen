@@ -30,7 +30,6 @@
 #include "pico/sem.h"
 #include "pico/multicore.h"
 #if PICO_ON_DEVICE
-#include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #endif
 #endif
@@ -40,9 +39,7 @@
 #include "doomtype.h"
 #include "i_system.h"
 #include "m_argv.h"
-#if PICO_RP2350
-#include "hardware/structs/qmi.h"
-#endif
+
 //
 // D_DoomMain()
 // Not a globally visible function, just included for source reference,
@@ -53,6 +50,7 @@ void D_DoomMain (void);
 
 #if PICO_ON_DEVICE
 #include "pico/binary_info.h"
+//dahai
 bi_decl(bi_3pins_with_names(PICO_AUDIO_I2S_DATA_PIN, "I2S DIN", PICO_AUDIO_I2S_CLOCK_PIN_BASE, "I2S BCK", PICO_AUDIO_I2S_CLOCK_PIN_BASE+1, "I2S LRCK"));
 #endif
 
@@ -64,19 +62,9 @@ int main(int argc, char **argv)
     myargv = argv;
 #endif
 #if PICO_ON_DEVICE
-#if PICO_RP2350
-    uint clkdiv = 3;
-    uint rxdelay = 2;
-    hw_write_masked(
-            &qmi_hw->m[0].timing,
-            ((clkdiv << QMI_M0_TIMING_CLKDIV_LSB) & QMI_M0_TIMING_CLKDIV_BITS) |
-            ((rxdelay << QMI_M0_TIMING_RXDELAY_LSB) & QMI_M0_TIMING_RXDELAY_BITS),
-            QMI_M0_TIMING_CLKDIV_BITS | QMI_M0_TIMING_RXDELAY_BITS
-    );
-#endif
+    sleep_ms(500);
     vreg_set_voltage(VREG_VOLTAGE_1_30);
-    busy_wait_us(1000);
-    // todo pause? is this the cause of the cold start issue?
+    // todo pause? is this the cause of the cold start isue?
     set_sys_clock_khz(270000, true);
 #if !USE_PICO_NET
     // debug ?

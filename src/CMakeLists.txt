@@ -512,9 +512,13 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         NO_USE_NET=1 # standard networking
         USE_PICO_NET=1
         # for vgaboard
+        #dahai
         PICO_DEFAULT_I2C=1
-        PICO_DEFAULT_I2C_SDA_PIN=18
-        PICO_DEFAULT_I2C_SCL_PIN=19
+        PICO_DEFAULT_I2C_SDA_PIN=14
+        PICO_DEFAULT_I2C_SCL_PIN=15
+        #PICO_DEFAULT_I2C=1
+        #PICO_DEFAULT_I2C_SDA_PIN=18
+        #PICO_DEFAULT_I2C_SCL_PIN=19
 
         #NO_USE_LOAD=1
         #NO_USE_SAVE=1
@@ -599,6 +603,9 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         )
         pico_enable_stdio_uart(doom_tiny${SUFFIX} 0)
     endif()
+    # dahai
+    pico_enable_stdio_uart(doom_tiny${SUFFIX} 0)
+
 endfunction()
 
 add_subdirectory(whd_gen)
@@ -608,6 +615,7 @@ target_sources(render_newhope INTERFACE
         pd_render.cpp
         )
 target_compile_definitions(render_newhope INTERFACE
+#dahai
         PICODOOM_RENDER_NEWHOPE=1
         MERGE_DISTSCALE0_INTO_VIEWCOSSINANGLE=1
         NO_USE_ZLIGHT=1
@@ -636,7 +644,7 @@ if (PICO_SDK)
             NO_USE_FINALE_BUNNY=1
     )
     target_compile_definitions(doom_tiny PRIVATE
-            TINY_WAD_ADDR=0x10040000
+            TINY_WAD_ADDR=0x10042000
     )
     target_link_libraries(doom_tiny PRIVATE tiny_settings)
     add_doom_tiny(_nost render_newhope)
@@ -645,21 +653,21 @@ if (PICO_SDK)
             # NO_USE_FINALE_CAST=1 # note this is only used by doom II but doesnt take that much more space
             TINY_WAD_ADDR=0x10048000
             )
-    if (PICO_ON_DEVICE)
-        suppress_tinyusb_warnings()
-        add_doom_tiny(_usb render_newhope)
-        target_link_libraries(doom_tiny_usb PRIVATE tiny_settings pico_cd)
-        target_compile_definitions(doom_tiny_usb PRIVATE
-                USB_SUPPORT=1
-                TINY_WAD_ADDR=0x10042000 # ugh tinyusb is >8K currently!!
-        )
-        add_doom_tiny(_nost_usb render_newhope)
-        target_link_libraries(doom_tiny_nost_usb PRIVATE pico_cd)
-        target_compile_definitions(doom_tiny_nost_usb PRIVATE
-                USB_SUPPORT=1
-                TINY_WAD_ADDR=0x10048000
-                )
-    endif()
+    # if (PICO_ON_DEVICE)
+    #    suppress_tinyusb_warnings()
+    #    add_doom_tiny(_usb render_newhope)
+    #    target_link_libraries(doom_tiny_usb PRIVATE tiny_settings pico_cd)
+    #    target_compile_definitions(doom_tiny_usb PRIVATE
+    #            USB_SUPPORT=1
+    #            TINY_WAD_ADDR=0x10042000 # ugh tinyusb is >8K currently!!
+    #    )
+    #    add_doom_tiny(_nost_usb render_newhope)
+    #    target_link_libraries(doom_tiny_nost_usb PRIVATE pico_cd)
+    #    target_compile_definitions(doom_tiny_nost_usb PRIVATE
+    #            USB_SUPPORT=1
+    #            TINY_WAD_ADDR=0x10048000
+    #            )
+    # endif()
 endif()
 
 

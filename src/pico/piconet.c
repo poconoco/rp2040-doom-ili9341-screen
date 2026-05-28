@@ -653,6 +653,7 @@ static void periodic_tick(uint timer) {
 
 
 void piconet_init() {
+    // dahai
     bi_decl_if_func_used(bi_program_feature("I2C multi-player"));
     bi_decl_if_func_used(bi_2pins_with_func(PICO_DEFAULT_I2C_SDA_PIN, PICO_DEFAULT_I2C_SCL_PIN, GPIO_FUNC_I2C));
 
@@ -664,9 +665,8 @@ void piconet_init() {
     gpio_pull_up(PICO_DEFAULT_I2C_SCL_PIN);
     irq_set_exclusive_handler(I2C_IRQ, i2c_irq_handler);
     hardware_alarm_set_callback(PERIODIC_ALARM_NUM, periodic_tick);
-    uint irq = TIMER_ALARM_IRQ_NUM(PICO_DEFAULT_TIMER_INSTANCE(), PERIODIC_ALARM_NUM);
-    irq_set_priority(irq, 0xc0); // don't want timer pre-empting the other IRQs
-    irq_set_enabled(irq, true); // no harm turning it on
+    irq_set_priority(TIMER_IRQ_0 + PERIODIC_ALARM_NUM, 0xc0); // don't want timer pre-empting the other IRQs
+    irq_set_enabled(TIMER_IRQ_0 + PERIODIC_ALARM_NUM, true); // no harm turning it on
 }
 
 static void clear_state() {

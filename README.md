@@ -1,3 +1,210 @@
+
+# What is this
+
+This is a combined sources from repos kilograham/rp2040-doom/ and pondahai/rp2040-doom-ili9341 to provide ready to build and use
+version of Doom port to RP2040 with ILI9341 screen.
+
+Instructions below were writtend and tested on Pop_OS 22.04 LTS, should work for most modern ubuntu-based distros
+
+# Hardware
+
+What I used to run DOOM2:
+
+- RP2040-Plus (the board with Type-C connector and 16Mb or flash storage). But it also should be compatible with standard Pi Pico with 2Mb of storage, but you'll have to use the super-tiny mode (see below), and you will be limited to what WADs you will be able to load onto the board. DOOM2 requires ~8 Mb of space, so RP-2040 is a perfect fit.
+- 320x240 screen with ILI9341 controller. Other controllers can be used, but it would need digging into the source and updating configuration. This repo is preconfigured for ILI9341
+- 8 pushbuttons
+
+
+# Instructions to build
+
+## Set build env
+```
+# Setup packages
+sudo apt update
+sudo apt install cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential python3 libsdl2-dev libsdl2-mixer-dev pkg-config libsdl2-net-dev libsamplerate0-dev
+
+# Clone pico SDK repos
+git clone https://github.com/raspberrypi/pico-extras.git ~/pico-extras
+git clone https://github.com/raspberrypi/pico-sdk.git ~/pico-sdk
+
+# Switch both to old revision compatible with the doom port
+cd ~/pico-sdk
+git fetch --all --tags
+git checkout 1.5.1
+git submodule update --init --recursive
+cd ~/pico-extras
+git fetch --all
+git checkout sdk-1.5.1
+git submodule update --init --recursive
+
+# Build pioasm binary
+cd ~/pico-sdk/tools/pioasm
+mkdir build
+cd build
+cmake ..
+make
+```
+
+## Build and install picotool
+
+1. Clone the official picotool repository to your home folder
+```
+git clone https://github.com/raspberrypi/picotool.git ~/picotool
+cd ~/picotool
+git fetch --all --tags
+git checkout 1.1.2
+```
+
+2. Set up the build environment
+```
+mkdir build
+cd build
+```
+
+3. Configure it using your existing Pico SDK
+```
+cmake -DPICO_SDK_PATH=~/pico-sdk ..
+```
+
+4. Compile it (using your 12 CPU threads!)
+```
+make -j12
+```
+
+5. Install it globally so you can run the command from any folder
+```
+sudo make install
+```
+
+## Build the host tools (`whd_gen` - WAD file converter)
+```
+cd /path/to/your/git/rp2040-doom-ili9341-screen
+git submodule update --init --recursive
+mkdir build
+cd build
+cmake ..
+make -j8
+```
+
+Check `whd_gen` util build results (while still in `build` dir)
+```
+cd src/whd_gen
+ls whd_gen
+```
+
+You should see the `whd_gen` util binary built.
+
+# Convert resources pack
+
+Now you can convert your legal copy of doom.wad or doom2.wad file with it:
+```
+cd /path/to/your/git/rp2040-doom-ili9341-screen/build/src/whd_gen
+./whd_gen /your/path/to/doom2.wad doom2.whd -no-super-tiny
+```
+
+The `-no-super-tiny` option disables agressive compression to fin into the 2Mb of regular Pi Pico board, because I use RP2040-Plus board with 16Mb or flash storage. So am pushing the full doom2.wad. To work with 2Mb board, use shareware doom.wad file and compress it without the `-no-super-tiny` option.
+
+# Build the firmware
+```
+cd /your/path/to/rp2040-doom-ili9341-screen
+mkdir build_pico
+cd build_pico
+cmake -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico -DPICO_SDK_PATH=~/pico-sdk -DPICO_EXTRAS_PATH=~/pico-extras ..
+```
+
+Check firmware build results (while still in `build_pico` dir)
+```
+ls src/*.uf2
+```
+You should see two files ready to go:
+
+- `src/doom_tiny.uf2` (This is the super-tiny version. Use it if you run `whd_gen` without `-no-super-tiny` flag)
+- `src/doom_tiny_nost.uf2` (This is a not super-tiny version. Use it if you run `whd_gen` with `-no-super-tiny` flag)
+
+# Flashing the code and resources pack
+
+1. Hold the BOOTSEL button on your Pico and plug it into your USB port.
+2. In terminal, navigate to where you generated the *.hhd file (I'll be using doom2.whd)
+3. Run the picotool command to write the *.whd data to the specific offset:
+```
+cd /path/to/your/git/rp2040-doom-ili9341-screen/build/src/whd_gen
+sudo picotool load -v -t bin doom2.whd -o 0x10048000
+```
+4. Now, when pico is still connected and mounted as a flash drive, copy to the root of that drive the `doom_tiny.uf2` file we build earlier.
+5. When finish copying, Pico should reboot automatically
+
+
+# Hardware wiring
+
+## Wire the display
+
+For an ILI9341 SPI display, connect:
+
+| Signal Name | Display Pin | Pico Pin / GPIO |
+| :--- | :--- | :--- |
+| **SCLK** | SPI Clock | **GPIO 18** |
+| **MOSI** | Data In | **GPIO 19** |
+| **CS** | Chip Select | **GPIO 17** |
+| **DC** | Data/Command | **GPIO 20** |
+| **RESET** | Reset | **GPIO 21** |
+| **BL** | Backlight | **GPIO 22** |
+| **MISO** | Data Out | Not Used |
+| **VCC** | Power (VIN) | **3V3 OUT** |
+| **GND** | Ground | **Any GND** |
+
+At this point you should be able to plug in the USB-C power and if everything went OK, the DOOM should launch and start playing demos.
+
+## Wire the digital sound module
+
+The moodule I used is MAX98357A, should also be compatible with PCM5102A
+
+| Signal Name | DAC Pin | Pico Pin / GPIO |
+| :--- | :--- | :--- |
+| **BCLK** | Bit Clock (BCK) | **GPIO 26** |
+| **LRCK** | Word Select (WS/LCK) | **GPIO 27** |
+| **DIN** | Data In (DATA) | **GPIO 28** |
+| **VCC** | Power (VIN) | **3V3 OUT** |
+| **GND** | Ground | **Any GND** |
+
+## Wire push-buttons
+
+Buttons should short the specified GPIO pin to gground when pressed
+Pinouit:
+
+| Define Button | GPIO | Function in DOOM |
+| :--- | :--- | :--- |
+| **PIN_UP** | 9 | Move Forward |
+| **PIN_DN** | 5 | Move Backward |
+| **PIN_LT** | 8 | Turn Left |
+| **PIN_RT** | 6 | Turn Right |
+| **PIN_A** | 2 | **Fire** (Space + Left Shift) |
+| **PIN_B** | 3 | **Open Door / Use** (Right Ctrl) |
+| **PIN_ST** | 4 | **Menu / Enter** (Enter + Tab) |
+| **PIN_SL** | 0 | **Escape** (Pause / Menu) |
+
+
+# ============================================================================ #
+# Original README of pondahai/rp2040-doom-ili9341
+# ============================================================================ #
+
+改編自 https://github.com/kilograham/rp2040-doom
+
+感謝kilograham做了絕大部分的貢獻 他把doom源碼做了很大的改寫 讓doom可以在rp2040(樹莓派pico)上運行 我只是修改成可以在LCD(ILI9341)上顯示
+
+我在這裡只有放我改過的源碼 並且在修改的地方插入//dahai這樣的記號 主要的修改邏輯是 1.關掉用不到或是衝突的GPIO 2.將原本的scanvideo輸出關閉，改成將緩衝區資料送到LCD
+
+Adapted from https://github.com/kilograham/rp2040-doom Thanks to kilograham for making most of his contributions. He made a big rewrite of the doom source code. Let doom run on rp2040 (Raspberry Pi pico)
+
+I just modified it so that it can be displayed on the LCD (ILI9341). I only put the source code I changed here. And insert a mark like //dahai in the modified place. The main modification logic is
+
+Turn off the useless or conflicting GPIO
+Turn off the original scanvideo output and send the buffer data to the LCD instead.
+
+
+# ============================================================================ #
+# Original README of kilograham/rp2040-doom/
+# ============================================================================ #
+
 # RP2040 (+RP2350) Doom
 
 This is a port of Doom for RP2040 / RP2350 devices, derived from [Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom).

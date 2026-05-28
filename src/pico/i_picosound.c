@@ -32,9 +32,59 @@
 
 #include "doomtype.h"
 #include "i_picosound.h"
+
+// dahai: 設定 I2S PWM 的超取樣倍率 (Oversampling)。
+// 預設 4: 較佔用記憶體與 CPU (容易有爆音)，但解析度高(7-bit)。
+// 改為 2: 省記憶體與 CPU (大幅減少爆音)，解析度略低(6-bit)。防反悔機制，隨時可改回 4。
+#define I2S_OVERSAMPLING 2
+
+// 當使用 I2S_OVERSAMPLING 機制時定義對應的 AUDIO_BUFFER_SIZE (覆蓋下方的宣告)
+#if I2S_OVERSAMPLING == 4
+#define PICO_AUDIO_OVERSAMPLED_BUFFER_SIZE 512
+#else
+#define PICO_AUDIO_OVERSAMPLED_BUFFER_SIZE 1024
+#endif
+
+#if USE_AUDIO_I2S
 #include "pico/audio_i2s.h"
+#elif USE_AUDIO_PWM
+#include "pico/audio_pwm.h"
+#elif USE_CUSTOM_AUDIO_PWM
+// #include "pico/audio_pwm.h"
+#include "hardware/dma.h"
+#include "hardware/irq.h"
+#include "hardware/pwm.h"
+#include "hardware/sync.h"
+#include "hardware/clocks.h"
+#define AUDIO_BUFFER_SIZE 512
+#define AUDIO_MAX_SOURCES 6
+#define REPETITION_RATE 4
+static uint32_t single_sample = 0;
+static uint32_t *single_sample_ptr = &single_sample;
+static int pwm_dma_chan, trigger_dma_chan, sample_dma_chan;
+
+static uint8_t audio_buffers[2][AUDIO_BUFFER_SIZE];
+static volatile int cur_audio_buffer;
+static volatile int last_audio_buffer;
+struct MIXER_SOURCE {
+  const unsigned char *samples;
+  int len;
+  int loop_start;
+  int pos;
+  bool active;
+  bool loop;
+  uint16_t volume; // 8.8 fixed point
+};
+
+static struct MIXER_SOURCE mixer_sources[AUDIO_MAX_SOURCES];
+static int16_t mixer_buffer[AUDIO_BUFFER_SIZE];
+#endif
+
 #include "pico/binary_info.h"
 #include "hardware/gpio.h"
+
+//dahai
+// #include "audio.h"
 
 #define ADPCM_BLOCK_SIZE 128
 #define ADPCM_SAMPLES_PER_BLOCK_SIZE 249
@@ -64,20 +114,31 @@ struct channel_s
 #endif
     int8_t decompressed[ADPCM_SAMPLES_PER_BLOCK_SIZE];
 };
-
+#if 1 // AUDIO_I2S or AUDIO_PWM
 static struct audio_buffer_pool *producer_pool;
 
 static struct audio_format audio_format = {
         .format = AUDIO_BUFFER_FORMAT_PCM_S16,
-        .sample_freq = PICO_SOUND_SAMPLE_FREQ,
+        #if 1
+        .sample_freq = PICO_SOUND_SAMPLE_FREQ * I2S_OVERSAMPLING,
+        #endif
+
+#if USE_AUDIO_I2S
         .channel_count = 2,
+#elif USE_AUDIO_PWM
+        .channel_count = 1,
+#endif
 };
 
 static struct audio_buffer_format producer_format = {
         .format = &audio_format,
+#if USE_AUDIO_I2S
         .sample_stride = 4
+#elif USE_AUDIO_PWM
+        .sample_stride = 4
+#endif
 };
-
+#endif
 // ====== FROM ADPCM-LIB =====
 #define CLIP(data, min, max) \
 if ((data) > (max)) data = max; \
@@ -327,6 +388,45 @@ static boolean I_Pico_SoundIsPlaying(int channel)
     return is_channel_playing(channel);
 }
 
+#if USE_CUSTOM_AUDIO_PWM
+uint8_t *audio_get_buffer(void)
+{
+  if (last_audio_buffer == cur_audio_buffer) {
+    return NULL;
+  }
+
+  uint8_t *buf = audio_buffers[last_audio_buffer];
+  last_audio_buffer = cur_audio_buffer;
+  return buf;
+}
+
+static int audio_claim_unused_source(void)
+{
+  for (int i = 0; i < AUDIO_MAX_SOURCES; i++) {
+    if (! mixer_sources[i].active) {
+      mixer_sources[i].active = true;
+      return i;
+    }
+  }
+  return -1;
+}
+
+int __not_in_flash_func(audio_play_once)(const uint8_t *samples, int len)
+{
+  int source_id = audio_claim_unused_source();
+  if (source_id < 0) {
+    return -1;
+  }
+  struct MIXER_SOURCE *source = &mixer_sources[source_id];
+  source->samples = samples;
+  source->len = len;
+  source->pos = 0;
+  source->loop = false;
+  source->volume = 255;
+  return source_id;
+}
+#endif // USE_CUSTOM_AUDIO_PWM
+
 static void I_Pico_UpdateSound(void)
 {
     if (!sound_initialized) return;
@@ -334,13 +434,18 @@ static void I_Pico_UpdateSound(void)
     // todo note this is called from D_Main around the game loop, which is fast enough now but may not be.
     //  we can either poll more frequently, or use IRQ but then we have to be careful with threading (both OPL and channels)
     // todo hopefully at least we can run the AI fast enough.
+#if 1 // AUDIO_I2S or AUDIO_PWM
     audio_buffer_t *buffer = take_audio_buffer(producer_pool, false);
     if (buffer) {
+#if USE_AUDIO_I2S
+        int base_samples = buffer->max_sample_count / I2S_OVERSAMPLING;
+        buffer->max_sample_count = base_samples;
+#endif
         if (music_generator) {
             // todo think about volume; this already has a (<< 3) in it
             music_generator(buffer);
         } else {
-            memset(buffer->buffer->bytes, 0, buffer->buffer->size);
+            memset(buffer->buffer->bytes, 0, buffer->max_sample_count * 4); // 4 bytes per sample stereo!
         }
         for(int ch=0; ch < NUM_SOUND_CHANNELS; ch++) {
             if (is_channel_playing(ch)) {
@@ -365,7 +470,9 @@ static void I_Pico_UpdateSound(void)
                     sample = (beta256 * sample + alpha256 * channel->decompressed[channel->offset >> 16]) / 256;
 #endif
                     *samples++ += sample * voll;
+//#if USE_AUDIO_I2S
                     *samples++ += sample * volr;
+//#endif
                     channel->offset += channel->step;
                     if (channel->offset >= offset_end) {
                         channel->offset -= offset_end;
@@ -379,9 +486,13 @@ static void I_Pico_UpdateSound(void)
                 }
             }
         }
+        // enum audio_correction_mode m = audio_pwm_get_correction_mode();
+        // bool done = false;
+        // done = audio_pwm_set_correction_mode(m);
+
         buffer->sample_count = buffer->max_sample_count;
         if (fade_state == FS_SILENT) {
-            memset(buffer->buffer->bytes, 0, buffer->buffer->size);
+            memset(buffer->buffer->bytes, 0, buffer->max_sample_count * 4);
         } else if (fade_state != FS_NONE) {
             int16_t *samples = (int16_t *)buffer->buffer->bytes;
             int fade_step = fade_state == FS_FADE_IN ? FADE_STEP : -FADE_STEP;
@@ -402,8 +513,145 @@ static void I_Pico_UpdateSound(void)
                 }
             }
         }
+        int16_t *samples = (int16_t *)buffer->buffer->bytes;
+#if USE_AUDIO_I2S
+        buffer->max_sample_count = base_samples * I2S_OVERSAMPLING;
+        
+#if I2S_OVERSAMPLING == 4
+        // 4x In-Place Oversampling Array Expansion
+        for(int i = buffer->sample_count - 1; i >= 0; i--) {
+            int16_t left = samples[i * 2];
+            int16_t right = samples[i * 2 + 1];
+            int32_t mono = (left + right) / 2;
+            
+            // Map -32768..32767 to 0..128 Duty Cycle (4 frames * 32bits = 128)
+            int duty = (mono + 32768) >> 9;
+            if (duty < 0) duty = 0;
+            if (duty > 128) duty = 128;
+            
+            int ones = duty;
+            uint32_t fb0 = (ones >= 32) ? 0xFFFFFFFFU : (ones > 0 ? 0xFFFFFFFFU << (32 - ones) : 0);
+            ones = (ones >= 32) ? ones - 32 : 0;
+            uint32_t fb1 = (ones >= 32) ? 0xFFFFFFFFU : (ones > 0 ? 0xFFFFFFFFU << (32 - ones) : 0);
+            ones = (ones >= 32) ? ones - 32 : 0;
+            uint32_t fb2 = (ones >= 32) ? 0xFFFFFFFFU : (ones > 0 ? 0xFFFFFFFFU << (32 - ones) : 0);
+            ones = (ones >= 32) ? ones - 32 : 0;
+            uint32_t fb3 = (ones >= 32) ? 0xFFFFFFFFU : (ones > 0 ? 0xFFFFFFFFU << (32 - ones) : 0);
+            
+            // Write 4 stereo frames (8 x 16-bit words) [i*8 .. i*8+7] backwards
+            samples[i * 8 + 6] = (int16_t)(~fb3 >> 16);
+            samples[i * 8 + 7] = (int16_t)(~fb3 & 0xFFFFU);
+            samples[i * 8 + 4] = (int16_t)(~fb2 >> 16);
+            samples[i * 8 + 5] = (int16_t)(~fb2 & 0xFFFFU);
+            samples[i * 8 + 2] = (int16_t)(~fb1 >> 16);
+            samples[i * 8 + 3] = (int16_t)(~fb1 & 0xFFFFU);
+            samples[i * 8 + 0] = (int16_t)(~fb0 >> 16);
+            samples[i * 8 + 1] = (int16_t)(~fb0 & 0xFFFFU);
+        }
+#elif I2S_OVERSAMPLING == 2
+        // 2x In-Place Oversampling Array Expansion
+        for(int i = buffer->sample_count - 1; i >= 0; i--) {
+            int16_t left = samples[i * 2];
+            int16_t right = samples[i * 2 + 1];
+            int32_t mono = (left + right) / 2;
+            
+            // Map -32768..32767 to 0..64 Duty Cycle (2 frames * 32bits = 64)
+            // 0 -> 32 (50% duty cycle, speaker rests at 0 DC offset)
+            int duty = (mono + 32768) >> 10;
+            if (duty < 0) duty = 0;
+            if (duty > 64) duty = 64;
+            
+            int ones = duty;
+            uint32_t fb0 = (ones >= 32) ? 0xFFFFFFFFU : (ones > 0 ? 0xFFFFFFFFU << (32 - ones) : 0);
+            ones = (ones >= 32) ? ones - 32 : 0;
+            uint32_t fb1 = (ones >= 32) ? 0xFFFFFFFFU : (ones > 0 ? 0xFFFFFFFFU << (32 - ones) : 0);
+            
+            // Write 2 stereo frames (4 x 16-bit words) [i*4 .. i*4+3] backwards
+            samples[i * 4 + 2] = (int16_t)(~fb1 >> 16);
+            samples[i * 4 + 3] = (int16_t)(~fb1 & 0xFFFFU);
+            samples[i * 4 + 0] = (int16_t)(~fb0 >> 16);
+            samples[i * 4 + 1] = (int16_t)(~fb0 & 0xFFFFU);
+        }
+#endif
+        buffer->sample_count = buffer->sample_count * I2S_OVERSAMPLING;
+#endif
         give_audio_buffer(producer_pool, buffer);
+
     }
+
+#endif // AUDIO_I2S or AUDIO_PWM
+
+#if USE_CUSTOM_AUDIO_PWM
+        uint8_t *buffer = audio_get_buffer();
+        if (music_generator) {
+            // todo think about volume; this already has a (<< 3) in it
+            music_generator(buffer);
+        } else {
+            memset(buffer, 0, AUDIO_BUFFER_SIZE);
+        }
+        for(int ch=0; ch < NUM_SOUND_CHANNELS; ch++) {
+            if (is_channel_playing(ch)) {
+                channel_t *channel = &channels[ch];
+                assert(channel->decompressed_size);
+                int voll = channel->left/2;
+                int volr = channel->right/2;
+                uint offset_end = channel->decompressed_size * 65536;
+                assert(channel->offset < offset_end);
+                uint8_t *samples = (uint8_t *)buffer;
+#if SOUND_LOW_PASS
+                int alpha256 = channel->alpha256;
+                int beta256 = 256 - alpha256;
+                int sample = channel->decompressed[channel->offset >> 16];
+#endif
+                for(int s=0;s<AUDIO_BUFFER_SIZE;s++) {
+#if !SOUND_LOW_PASS
+                    int sample = channel->decompressed[channel->offset >> 16];
+#else
+                    // todo graham, note that since we are all at the same frequency (and it isn't the end
+                    //  of the world anyway, we could do this across all channels at once)
+                    sample = (beta256 * sample + alpha256 * channel->decompressed[channel->offset >> 16]) / 256;
+#endif
+                    *samples++ += sample * voll;
+
+                    channel->offset += channel->step;
+                    if (channel->offset >= offset_end) {
+                        channel->offset -= offset_end;
+                        decompress_buffer(channel);
+                        offset_end = channel->decompressed_size * 65536;
+                        if (channel->offset >= offset_end) {
+                            stop_channel(ch);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        //buffer->sample_count = buffer->max_sample_count;
+        if (fade_state == FS_SILENT) {
+            memset(buffer, 0, AUDIO_BUFFER_SIZE);
+        } else if (fade_state != FS_NONE) {
+            uint8_t *samples = (uint8_t *)buffer;
+            int fade_step = fade_state == FS_FADE_IN ? FADE_STEP : -FADE_STEP;
+            int i;
+            for(i=0;i<AUDIO_BUFFER_SIZE * 2 && fade_level;i+=2) {
+                samples[i] = (samples[i] * (int)fade_level) >> 16;
+                samples[i+1] = (samples[i+1] * (int)fade_level) >> 16;
+                fade_level += fade_step;
+            }
+            if (!fade_level) {
+                if (fade_state == FS_FADE_OUT) {
+                    for(;i<AUDIO_BUFFER_SIZE * 2;i++) {
+                        samples[i] = 0;
+                    }
+                    fade_state = FS_SILENT;
+                } else {
+                    fade_state = FS_NONE;
+                }
+            }
+        }
+        // give_audio_buffer(producer_pool, buffer);
+
+#endif
 }
 
 static void I_Pico_ShutdownSound(void)
@@ -415,17 +663,33 @@ static void I_Pico_ShutdownSound(void)
     sound_initialized = false;
 }
 
+#if USE_CUSTOM_AUDIO_PWM
+static void __isr __time_critical_func(dma_handler)()
+{
+  cur_audio_buffer = 1 - cur_audio_buffer;
+  dma_hw->ch[sample_dma_chan].al1_read_addr       = (intptr_t) &audio_buffers[cur_audio_buffer][0];
+  dma_hw->ch[trigger_dma_chan].al3_read_addr_trig = (intptr_t) &single_sample_ptr;
+
+  dma_hw->ints1 = 1u << trigger_dma_chan;
+}
+#endif
+
 static boolean I_Pico_InitSound(boolean _use_sfx_prefix)
 {
     int i;
     use_sfx_prefix = _use_sfx_prefix;
-
+#if 1 // AUDIO_I2S or AUDIO_PWM
     // todo this will likely need adjustment - maybe with IRQs/double buffer & pull from audio we can make it quite small
+#if USE_AUDIO_I2S
+    producer_pool = audio_new_producer_pool(&producer_format, 2, PICO_AUDIO_OVERSAMPLED_BUFFER_SIZE * I2S_OVERSAMPLING); // oversampling total size
+#else
     producer_pool = audio_new_producer_pool(&producer_format, 2, 1024); // todo correct size
-
+#endif
+#endif // AUDIO_I2S or AUDIO_PWM
+#if USE_AUDIO_I2S
     struct audio_i2s_config config = {
             .data_pin = PICO_AUDIO_I2S_DATA_PIN,
-            .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
+            //.clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
             .dma_channel = 6,
             .pio_sm = 0,
     };
@@ -437,15 +701,109 @@ static boolean I_Pico_InitSound(boolean _use_sfx_prefix)
     }
 
 #if INCREASE_I2S_DRIVE_STRENGTH
-    bi_decl(bi_program_feature("12mA I2S"));
+    //bi_decl(bi_program_feature("12mA I2S"));
     gpio_set_drive_strength(PICO_AUDIO_I2S_DATA_PIN, GPIO_DRIVE_STRENGTH_12MA);
-    gpio_set_drive_strength(PICO_AUDIO_I2S_CLOCK_PIN_BASE, GPIO_DRIVE_STRENGTH_12MA);
-    gpio_set_drive_strength(PICO_AUDIO_I2S_CLOCK_PIN_BASE+1, GPIO_DRIVE_STRENGTH_12MA);
+    //gpio_set_drive_strength(PICO_AUDIO_I2S_CLOCK_PIN_BASE, GPIO_DRIVE_STRENGTH_12MA);
+    //gpio_set_drive_strength(PICO_AUDIO_I2S_CLOCK_PIN_BASE+1, GPIO_DRIVE_STRENGTH_12MA);
 #endif
     // we want to pass thr
     bool ok = audio_i2s_connect_extra(producer_pool, false, 0, 0, NULL);
     assert(ok);
     audio_i2s_set_enabled(true);
+
+#elif USE_AUDIO_PWM
+    struct audio_pwm_channel_config config = {
+                .core = {
+                        .base_pin = 0,
+                        .pio_sm = 0,
+                        .dma_channel =0
+                },
+                .pattern =3,
+    };
+    // set_sys_clock_48mhz();
+    bool __unused ok;
+    const struct audio_format *output_format;
+    output_format = audio_pwm_setup(&audio_format, -1, &config);
+    if (!output_format) {
+        panic("PicoAudio: Unable to open audio device.\n");
+    }
+    ok = audio_pwm_default_connect(producer_pool, false);
+    assert(ok);
+    audio_pwm_set_enabled(true);
+
+#elif USE_CUSTOM_AUDIO_PWM
+  gpio_set_function(PICO_AUDIO_PWM_PIO, GPIO_FUNC_PWM);
+
+  int audio_pin_slice = pwm_gpio_to_slice_num(PICO_AUDIO_PWM_PIO);
+  int audio_pin_chan = pwm_gpio_to_channel(PICO_AUDIO_PWM_PIO);
+
+  uint f_clk_sys = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_SYS);
+  float clock_div = ((float)f_clk_sys * 1000.0f) / 254.0f / (float) PICO_SOUND_SAMPLE_FREQ / (float) REPETITION_RATE;
+
+  pwm_config config = pwm_get_default_config();
+  pwm_config_set_clkdiv(&config, clock_div);
+  pwm_config_set_wrap(&config, 254);
+  pwm_init(audio_pin_slice, &config, true);
+
+  pwm_dma_chan     = dma_claim_unused_channel(true);
+  trigger_dma_chan = dma_claim_unused_channel(true);
+  sample_dma_chan  = dma_claim_unused_channel(true);
+
+  // setup PWM DMA channel
+  dma_channel_config pwm_dma_chan_config = dma_channel_get_default_config(pwm_dma_chan);
+  channel_config_set_transfer_data_size(&pwm_dma_chan_config, DMA_SIZE_32);              // transfer 32 bits at a time
+  channel_config_set_read_increment(&pwm_dma_chan_config, false);                        // always read from the same address
+  channel_config_set_write_increment(&pwm_dma_chan_config, false);                       // always write to the same address
+  channel_config_set_chain_to(&pwm_dma_chan_config, sample_dma_chan);                    // trigger sample DMA channel when done
+  channel_config_set_dreq(&pwm_dma_chan_config, DREQ_PWM_WRAP0 + audio_pin_slice);       // transfer on PWM cycle end
+  dma_channel_configure(pwm_dma_chan,
+                        &pwm_dma_chan_config,
+                        &pwm_hw->slice[audio_pin_slice].cc,   // write to PWM slice CC register
+                        &single_sample,                       // read from single_sample
+                        REPETITION_RATE,                      // transfer once per desired sample repetition
+                        false                                 // don't start yet
+                        );
+
+  // setup trigger DMA channel
+  dma_channel_config trigger_dma_chan_config = dma_channel_get_default_config(trigger_dma_chan);
+  channel_config_set_transfer_data_size(&trigger_dma_chan_config, DMA_SIZE_32);          // transfer 32-bits at a time
+  channel_config_set_read_increment(&trigger_dma_chan_config, false);                    // always read from the same address
+  channel_config_set_write_increment(&trigger_dma_chan_config, false);                   // always write to the same address
+  channel_config_set_dreq(&trigger_dma_chan_config, DREQ_PWM_WRAP0 + audio_pin_slice);   // transfer on PWM cycle end
+  dma_channel_configure(trigger_dma_chan,
+                        &trigger_dma_chan_config,
+                        &dma_hw->ch[pwm_dma_chan].al3_read_addr_trig,     // write to PWM DMA channel read address trigger
+                        &single_sample_ptr,                               // read from location containing the address of single_sample
+                        REPETITION_RATE * AUDIO_BUFFER_SIZE,              // trigger once per audio sample per repetition rate
+                        false                                             // don't start yet
+                        );
+  dma_channel_set_irq1_enabled(trigger_dma_chan, true);    // fire interrupt when trigger DMA channel is done
+  irq_set_exclusive_handler(DMA_IRQ_1, dma_handler);
+  irq_set_enabled(DMA_IRQ_1, true);
+
+  // setup sample DMA channel
+  dma_channel_config sample_dma_chan_config = dma_channel_get_default_config(sample_dma_chan);
+  channel_config_set_transfer_data_size(&sample_dma_chan_config, DMA_SIZE_8);  // transfer 8-bits at a time
+  channel_config_set_read_increment(&sample_dma_chan_config, true);            // increment read address to go through audio buffer
+  channel_config_set_write_increment(&sample_dma_chan_config, false);          // always write to the same address
+  dma_channel_configure(sample_dma_chan,
+                        &sample_dma_chan_config,
+                        (char*)&single_sample + 2*audio_pin_chan,  // write to single_sample
+                        &audio_buffers[0][0],                      // read from audio buffer
+                        1,                                         // only do one transfer (once per PWM DMA completion due to chaining)
+                        false                                      // don't start yet
+                        );
+
+
+  // clear audio buffers
+  memset(audio_buffers[0], 128, AUDIO_BUFFER_SIZE);
+  memset(audio_buffers[1], 128, AUDIO_BUFFER_SIZE);
+  
+  // kick things off with the trigger DMA channel
+  dma_channel_start(trigger_dma_chan);
+
+#endif
+
 
     sound_initialized = true;
     return true;

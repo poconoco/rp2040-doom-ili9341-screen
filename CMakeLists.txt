@@ -1,8 +1,10 @@
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.12)
 
-# We use PICO_SDK_PATH being set as an indicator that we're doing a Pico BUILD
+include(prebuilt_tools.cmake)
+
+# Pull in SDK (must be before project)
 if (PICO_SDK_PATH)
     include(pico_sdk_import.cmake)
     include(pico_extras_import.cmake)

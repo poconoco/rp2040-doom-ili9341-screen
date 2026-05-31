@@ -49,13 +49,13 @@ endif()
 #
 #
 #
-#dahai
-# disable scanvideo's pin
+#dahai, nocomake
+# disable scanvideo's pin, but keep i2s audio on pins 26+27, 28
 target_compile_definitions(common_pico INTERFACE
-    PICO_SCANVIDEO_COLOR_PIN_BASE=30 
+    PICO_SCANVIDEO_COLOR_PIN_BASE=30
     PICO_SCANVIDEO_SYNC_PIN_BASE=30
-    PICO_AUDIO_I2S_DATA_PIN=7
-    PICO_AUDIO_I2S_CLOCK_PIN_BASE=30
+    PICO_AUDIO_I2S_DATA_PIN=28
+    PICO_AUDIO_I2S_CLOCK_PIN_BASE=26
 )
 
 target_link_libraries(common_pico INTERFACE hardware_spi)

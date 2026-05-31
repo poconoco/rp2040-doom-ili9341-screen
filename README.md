@@ -19,34 +19,33 @@ What I used to run DOOM2:
 # Instructions to build
 
 ## Set build env
+
+Setup some packages
 ```
-# Setup packages
 sudo apt update
 sudo apt install cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential python3 libsdl2-dev libsdl2-mixer-dev pkg-config libsdl2-net-dev libsamplerate0-dev
+```
 
-# Clone pico SDK repos
-git clone https://github.com/raspberrypi/pico-extras.git ~/pico-extras
-git clone https://github.com/raspberrypi/pico-sdk.git ~/pico-sdk
+** Some of the packages above are not used in the pico doom build itself (like SDL packages), but are required to run the host build which builds the entire ChocolateDoom, and we need to run that build to build the whd_gen tool. It probably can be optimized to not pull those dependencies, but right now I'm leaving it as is.
 
-# Switch both to old revision compatible with the doom port
-cd ~/pico-sdk
-git fetch --all --tags
-git checkout 1.5.1
+Checkout the repo and update submodules
+```
+git clone https://github.com/poconoco/rp2040-doom-ili9341-screen.git ~/rp2040-doom-ili9341-screen
+cd ~/rp2040-doom-ili9341-screen
 git submodule update --init --recursive
-cd ~/pico-extras
-git fetch --all
-git checkout sdk-1.5.1
-git submodule update --init --recursive
+```
 
-# Build pioasm binary
+## Build pico tools
+
+### Build pioasm binary
+
+```
 cd ~/pico-sdk/tools/pioasm
 mkdir build
 cd build
 cmake ..
 make
 ```
-
-## Build and install picotool
 
 1. Clone the official picotool repository to your home folder
 ```
@@ -110,7 +109,7 @@ The `-no-super-tiny` option disables agressive compression to fin into the 2Mb o
 cd /your/path/to/rp2040-doom-ili9341-screen
 mkdir build_pico
 cd build_pico
-cmake -DCMAKE_BUILD_TYPE=Release -DPICO_BOARD=pico -DPICO_SDK_PATH=~/pico-sdk -DPICO_EXTRAS_PATH=~/pico-extras ..
+cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DPICO_BOARD=pico -DPICO_SDK_PATH=../pico/pico-sdk -DPICO_EXTRAS_PATH=../pico/pico-extras ..
 ```
 
 Check firmware build results (while still in `build_pico` dir)

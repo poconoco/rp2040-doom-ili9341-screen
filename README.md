@@ -12,6 +12,7 @@ What I used to run DOOM2:
 
 - RP2040-Plus (the board with Type-C connector and 16Mb or flash storage). But it also should be compatible with standard Pi Pico with 2Mb of storage, but you'll have to use the super-tiny mode (see below), and you will be limited to what WADs you will be able to load onto the board. DOOM2 requires ~8 Mb of space, so RP-2040 is a perfect fit.
 - 320x240 screen with ILI9341 controller. Other controllers can be used, but it would need digging into the source and updating configuration. This repo is preconfigured for ILI9341
+- Digital sound module based on MAX98357A should also be compatible with PCM5102A
 - 8 pushbuttons
 
 
@@ -76,7 +77,7 @@ make -j12
 sudo make install
 ```
 
-## Build the host tools (`whd_gen` - WAD file converter)
+## Build the `whd_gen` tool - WAD file converter
 ```
 cd /path/to/your/git/rp2040-doom-ili9341-screen
 git submodule update --init --recursive
@@ -156,7 +157,7 @@ At this point you should be able to plug in the USB-C power and if everything we
 
 ## Wire the digital sound module
 
-The moodule I used is MAX98357A, should also be compatible with PCM5102A
+The module I used is MAX98357A, should also be compatible with PCM5102A
 
 | Signal Name | DAC Pin | Pico Pin / GPIO |
 | :--- | :--- | :--- |
@@ -183,9 +184,9 @@ Pinouit:
 | **PIN_SL** | 0 | **Escape** (Pause / Menu) |
 
 
-# ============================================================================ #
+# ============================================= #
 # Original README of pondahai/rp2040-doom-ili9341
-# ============================================================================ #
+# ============================================= #
 
 改編自 https://github.com/kilograham/rp2040-doom
 
@@ -201,9 +202,9 @@ Turn off the useless or conflicting GPIO
 Turn off the original scanvideo output and send the buffer data to the LCD instead.
 
 
-# ============================================================================ #
+# ============================================= #
 # Original README of kilograham/rp2040-doom/
-# ============================================================================ #
+# ============================================= #
 
 # RP2040 (+RP2350) Doom
 

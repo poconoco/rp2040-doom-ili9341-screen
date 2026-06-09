@@ -1070,18 +1070,21 @@ void /*__scratch_x("scanlines")*/ fill_scanlines() {
         if ((int8_t) frame != last_frame_number) {
             last_frame_number = frame;
             new_frame_stuff();
-        //dahai
-        gpio_xor_mask(1<<LED_PIN);
-            if(frame % 60 == 0){
+            //dahai
+            gpio_xor_mask(1<<LED_PIN);
+
+            if(frame < 5) {  
+                // poconoco
+                // Required to fix the initial screen corruption issue. 
+                // The first few frames after reset are not rendered correctly due to uninitialized state in the display controller. 
+                // Re-initializing the frame timing registers for the first few frames ensures that the display starts rendering correctly.
                 #ifdef ILI9341
                 ili9341_infones_frame_timing_register_init();
                 #endif
                 #ifdef ST7789
                 st7789_infones_frame_timing_register_init();
                 #endif
-
             }
-
         }
 
         DEBUG_PINS_SET(scanline_copy, 1);

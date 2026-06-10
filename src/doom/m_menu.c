@@ -813,19 +813,19 @@ static void SetDefaultSaveName(int slot)
     // map from IWAD or PWAD?
     if (W_IsIWADLump(maplumpinfo))
     {
-        M_snprintf(savegamestrings[itemOn], SAVESTRINGSIZE,
+        M_snprintf(savegamestrings[slot], SAVESTRINGSIZE,
                    "%s", maplumpinfo->name);
     }
     else
     {
-        M_snprintf(savegamestrings[itemOn], SAVESTRINGSIZE,
+        M_snprintf(savegamestrings[slot], SAVESTRINGSIZE,
                    "%s: %s", W_WadNameForLump(maplumpinfo),
                    maplumpinfo->name);
     }
 #else
-    strcpy(savegamestrings[itemOn], "TEST");
+    strcpy(savegamestrings[slot], "SAVE");
 #endif
-    M_ForceUppercase(savegamestrings[itemOn]);
+    M_ForceUppercase(savegamestrings[slot]);
     joypadSave = false;
 }
 
@@ -849,11 +849,10 @@ void M_SaveSelect(int choice)
     if (!strcmp(savegamestrings[choice], EMPTYSTRING))
     {
         savegamestrings[choice][0] = 0;
-
-        if (joypadSave)
-        {
-            SetDefaultSaveName(choice);
-        }
+        /* Prepopulate empty save slot with current level name so users
+         * without a keyboard have a sensible default. Keep cursor so user
+         * can edit or press Enter to accept. */
+        SetDefaultSaveName(choice);
     }
     stringEntryBuffer = savegamestrings[choice];
     stringEntryIndex = strlen(savegamestrings[choice]);

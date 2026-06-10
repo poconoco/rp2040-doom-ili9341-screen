@@ -2664,12 +2664,14 @@ const uint8_t *get_end_of_flash(void) {
 void P_SaveGameGetExistingFlashSlotAddresses(flash_slot_info_t *slots, int count) {
     const uint8_t *index = get_end_of_flash() - 4;
     const uint8_t *limit = whd_map_base + whdheader->size;
+    const uint8_t *best_start[8];
     bool found[8];
     bool cleared[8];
 
     for (int i = 0; i < count; i++) {
         slots[i].data = 0;
         slots[i].size = 0;
+        best_start[i] = NULL;
         found[i] = false;
         cleared[i] = false;
     }
@@ -2684,15 +2686,18 @@ void P_SaveGameGetExistingFlashSlotAddresses(flash_slot_info_t *slots, int count
                 start[2] == (uint8_t)(size ^ 0x55) &&
                 start[3] == (uint8_t)((size>>8) ^ 0xaa)) {
                 int slot = index[1];
-                if (!found[slot] && !cleared[slot]) {
+                if (!best_start[slot] || start < best_start[slot]) {
+                    best_start[slot] = start;
                     if (size == 0) {
                         cleared[slot] = true;
+                        found[slot] = false;
                         slots[slot].data = 0;
                         slots[slot].size = 0;
                     } else {
+                        cleared[slot] = false;
+                        found[slot] = true;
                         slots[slot].data = start + 4;
                         slots[slot].size = size;
-                        found[slot] = true;
                     }
                 }
                 index = start - 4;

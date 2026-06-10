@@ -2665,17 +2665,22 @@ void P_SaveGameGetExistingFlashSlotAddresses(flash_slot_info_t *slots, int count
     const uint8_t *index = get_end_of_flash() - 4;
     int i;
     const uint8_t *limit = whd_map_base + whdheader->size;
+    printf("[LOADGAME] Searching for saves. End of flash=%p, limit=%p\n", index + 4, limit);
     for(i=0;i<count;i++) {
         bool ok = false;
+        printf("[LOADGAME] Slot %d: checking index @ %p = [%02x %02x %02x %02x]\n", 
+               i, index, index[0], index[1], index[2], index[3]);
         if (index[0] == 0x53 && index[1] >= i && index[1] < count) {
             int size = index[2] + (index[3] << 8);
             const uint8_t *start = index - size - 4;
+            printf("[LOADGAME]   Found high marker for slot %d, size=%d, checking @ %p\n", index[1], size, start);
             if (start >= limit &&
                 start[0] == 0xb7 &&
                 start[1] == index[1] &&
                 start[2] == (uint8_t)(size ^ 0x55) &&
                 start[3] == (uint8_t)((size>>8) ^ 0xaa)) {
                 ok = true;
+                printf("[LOADGAME]   Valid slot %d at %p (data at %p, size=%d)\n", index[1], start, start + 4, size);
                 for(;i<index[1];i++) {
                     slots[i].data = 0;
                     slots[i].size = 0;
@@ -2683,7 +2688,9 @@ void P_SaveGameGetExistingFlashSlotAddresses(flash_slot_info_t *slots, int count
                 slots[i].data = start + 4;
                 slots[i].size = size;
                 index = start - 4;
-//                printf("SLOT %d %s %p->%p (+%04x)\n", i, slots[i].data, slots[i].data-4, slots[i].data-4 + slots[i].size+8, slots[i].size+8);
+            } else {
+                printf("[LOADGAME]   Invalid markers: start=%p >= limit=%p? %d, start[0]=0xb7? %d, start[1]==%d? %d\n",
+                       start, limit, start >= limit, start[0] == 0xb7, index[1], start[1] == index[1]);
             }
         }
         if (!ok) break;
@@ -2746,80 +2753,123 @@ boolean __noinline P_SaveGameWriteFlashSlot(int slot, const uint8_t *buffer, uin
 #define SLOT_OVERHEAD 8
     flash_slot_info_t slots[MAX_SLOTS];
     P_SaveGameGetExistingFlashSlotAddresses(slots, count_of(slots));
-    int used = 0;
-    const uint8_t *prev_slot_bottom = get_end_of_flash();
-    int last_slot = 0;
-    for(int i=0;i< count_of(slots);i++) {
-        if (slots[i].data) {
-            if (i < slot) {
-                prev_slot_bottom = slots[i].data - 4;
+    const uint8_t *limit = whd_map_base + whdheader->size;
+    const uint8_t *end_of_flash = get_end_of_flash();
+
+    struct slot_layout {
+        const uint8_t *src;
+        const uint8_t *dest_data;
+        int size;
+        int slot;
+    } layout[MAX_SLOTS];
+
+    int layout_count = 0;
+    int total_size = 0;
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        if (i == slot) {
+            if (buffer && size > 0) {
+                layout[layout_count++] = (struct slot_layout){.src = buffer, .dest_data = NULL, .size = (int)size, .slot = slot};
+                total_size += size + SLOT_OVERHEAD;
             }
-            if (i != slot) {
-                used += SLOT_OVERHEAD + slots[i].size;
-            }
-            last_slot = i;
+        } else if (slots[i].data) {
+            layout[layout_count++] = (struct slot_layout){.src = slots[i].data, .dest_data = NULL, .size = (int)slots[i].size, .slot = i};
+            total_size += slots[i].size + SLOT_OVERHEAD;
         }
     }
-    const uint8_t *limit = whd_map_base + whdheader->size;
-    int freespace = (get_end_of_flash() - limit) - used;
-//    printf("SPACE %d, required %d\n", freespace, size + SLOT_OVERHEAD);
-    if (freespace < size + SLOT_OVERHEAD) {
+
+    if (total_size > (int)(end_of_flash - limit)) {
         return false;
     }
-    pd_start_save_pause();
-//    printf("Need to add %p->%p (+%04x)\n", prev_slot_bottom - 4 - size, prev_slot_bottom, size + 8);
-    if (last_slot > slot) {
-        assert(slots[last_slot.data]);
-        const uint8_t *from_top = slots[slot].data ? slots[slot].data - 4 : prev_slot_bottom;
-        const uint8_t *from_bottom = slots[last_slot].data - 4;
-        const uint8_t *to_top = prev_slot_bottom;
-        if (buffer) to_top -= size + SLOT_OVERHEAD;
-        assert(from_top - from_bottom > 0);
-        flash_write_element element = {
-                .size = from_top - from_bottom,
-                .dest = to_top - (from_top - from_bottom),
-                .src = from_bottom
-        };
-//        printf("Need to move %p->%p (+%04x) to %p->%p\n", from_bottom, from_top, element.size, to_top - element.size, to_top);
-        write_flash_elements(&element, 1, to_top - element.size, to_top, buffer4k, to_top < from_top);
-    }
-    if (buffer) {
-        uint8_t high_marker[] = {
-                0x53, (uint8_t) slot, size & 0xff, (size >> 8) & 0xff
-        };
-        uint8_t low_marker[] = {
-                0xb7, (uint8_t) slot, 0x55 ^ (size & 0xff), 0xaa ^ ((size >> 8) & 0xff)
-        };
 
-        flash_write_element elements[3] = {
-                {
-                        .dest = prev_slot_bottom - 4,
-                        .src = high_marker,
-                        .size = 4,
-                },
-                {
-                        .dest = prev_slot_bottom - 4 - size,
-                        .src = buffer,
-                        .size = (int) size,
-                },
-                {
-                        .dest = prev_slot_bottom - 8 - size,
-                        .src = low_marker,
-                        .size = 4,
-                }
-        };
-        write_flash_elements(elements, count_of(elements), prev_slot_bottom - 8 - size, prev_slot_bottom, buffer4k,
-                             true);
-    } else if (slot == last_slot && slots[slot].data) {
-//        printf("Nuking slot %d\n", slot);
+    const uint8_t *new_start = end_of_flash;
+    for (int i = 0, j = 0; i < MAX_SLOTS; i++) {
+        if (i == slot) {
+            if (buffer && size > 0) {
+                new_start -= size + SLOT_OVERHEAD;
+                layout[j++].dest_data = new_start + 4;
+            }
+        } else if (slots[i].data) {
+            new_start -= slots[i].size + SLOT_OVERHEAD;
+            layout[j++].dest_data = new_start + 4;
+        }
+    }
+
+    const uint8_t *old_start = end_of_flash;
+    const uint8_t *topmost_old_data = NULL;
+    int topmost_old_slot = -1;
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        if (slots[i].data) {
+            const uint8_t *entry_start = slots[i].data - 4;
+            if (entry_start < old_start) {
+                old_start = entry_start;
+            }
+            if (topmost_old_data == NULL || slots[i].data > topmost_old_data) {
+                topmost_old_data = slots[i].data;
+                topmost_old_slot = i;
+            }
+        }
+    }
+
+    pd_start_save_pause();
+
+    if (layout_count == 0) {
+        if (topmost_old_data == NULL) {
+            pd_end_save_pause();
+            return true;
+        }
         uint8_t dummy[4] = {0};
         flash_write_element element = {
                 .size = 4,
-                .dest = slots[slot].data + slots[slot].size,
+                .dest = topmost_old_data + slots[topmost_old_slot].size,
                 .src = dummy
         };
-        write_flash_elements(&element, 1, element.dest, element.dest+4, buffer4k, true);
+        write_flash_elements(&element, 1, element.dest, element.dest + 4, buffer4k, true);
+        pd_end_save_pause();
+        return true;
     }
+
+    const uint8_t *low_dest = old_start;
+    if (new_start < low_dest) {
+        low_dest = new_start;
+    }
+    const uint8_t *high_dest = end_of_flash;
+    const bool forwards = new_start < old_start;
+
+    flash_write_element elements[MAX_SLOTS * 3];
+    int elem_count = 0;
+    for (int i = 0; i < layout_count; i++) {
+        uint8_t high_marker[4] = {
+                0x53, (uint8_t) layout[i].slot, layout[i].size & 0xff, (layout[i].size >> 8) & 0xff
+        };
+        uint8_t low_marker[4] = {
+                0xb7, (uint8_t) layout[i].slot, 0x55 ^ (layout[i].size & 0xff), 0xaa ^ ((layout[i].size >> 8) & 0xff)
+        };
+
+        printf("[SAVEGAME] Slot %d: dest_data=%p, size=%d\n", layout[i].slot, layout[i].dest_data, layout[i].size);
+        printf("[SAVEGAME]   Low marker @ %p: [%02x %02x %02x %02x]\n", 
+               layout[i].dest_data - 4, low_marker[0], low_marker[1], low_marker[2], low_marker[3]);
+        printf("[SAVEGAME]   Data @ %p: %d bytes\n", layout[i].dest_data, layout[i].size);
+        printf("[SAVEGAME]   High marker @ %p: [%02x %02x %02x %02x]\n", 
+               layout[i].dest_data + layout[i].size, high_marker[0], high_marker[1], high_marker[2], high_marker[3]);
+
+        elements[elem_count++] = (flash_write_element){
+                .dest = layout[i].dest_data + layout[i].size,
+                .src = high_marker,
+                .size = 4,
+        };
+        elements[elem_count++] = (flash_write_element){
+                .dest = layout[i].dest_data,
+                .src = layout[i].src,
+                .size = layout[i].size,
+        };
+        elements[elem_count++] = (flash_write_element){
+                .dest = layout[i].dest_data - 4,
+                .src = low_marker,
+                .size = 4,
+        };
+    }
+
+    write_flash_elements(elements, elem_count, low_dest, high_dest, buffer4k, forwards);
     pd_end_save_pause();
     return true;
 }

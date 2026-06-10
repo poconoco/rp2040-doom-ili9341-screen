@@ -8,6 +8,7 @@
 
 #include "picoflash.h"
 #include "pico/bootrom.h"
+#include "pico/multicore.h"
 
 #define FLASH_BLOCK_ERASE_CMD 0xd8
 
@@ -48,10 +49,23 @@ void __no_inline_not_in_flash_func(picoflash_sector_program)(uint32_t flash_offs
 
     __compiler_memory_barrier();
 
+    // If the other core is active, request a multicore lockout so it enters
+    // a safe state before we exit XIP and program flash. This mirrors the
+    // Pico SDK's safe flash execute behaviour.
+    if (multicore_lockout_victim_is_initialized(get_core_num() ^ 1)) {
+        if (!multicore_lockout_start_timeout_us(2000000ull)) {
+            return;
+        }
+    }
+
     connect_internal_flash();
     flash_exit_xip();
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE, FLASH_BLOCK_SIZE, FLASH_BLOCK_ERASE_CMD);
     flash_range_program(flash_offs, data, FLASH_SECTOR_SIZE);
     flash_flush_cache(); // Note this is needed to remove CSn IO force as well as cache flushing
     flash_enable_xip_via_boot2(boot2_copyout);
+
+    if (multicore_lockout_victim_is_initialized(get_core_num() ^ 1)) {
+        multicore_lockout_end_timeout_us(2000000ull);
+    }
 }

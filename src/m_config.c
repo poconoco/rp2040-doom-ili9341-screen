@@ -40,6 +40,10 @@
 #include "m_config.h"
 #include "m_misc.h"
 
+#if PICO_ON_DEVICE
+#include "picofs.h"
+#endif
+
 #include "z_zone.h"
 
 //
@@ -1735,11 +1739,36 @@ static void SaveDefaultCollection(default_collection_t *collection)
 #if !NO_USE_SAVE_CONFIG
     default_t *defaults;
     int i, v;
+
+#if PICO_ON_DEVICE
+    if (!PicoFS_IsAvailable())
+    {
+        return;
+    }
+
+    char *buffer = malloc(16384);
+    if (buffer == NULL)
+    {
+        return;
+    }
+    char *writer = buffer;
+    int remaining = 16384;
+
+    #define CFGWRITE(...) do { \
+        int written = snprintf(writer, remaining, __VA_ARGS__); \
+        if (written < 0 || written >= remaining) { free(buffer); return; } \
+        writer += written; \
+        remaining -= written; \
+    } while (0)
+#else
     FILE *f;
-	
+#endif
+
+#if !PICO_ON_DEVICE
     f = fopen (collection->filename, "w");
     if (!f)
-	return; // can't write the file, but don't complain
+        return; // can't write the file, but don't complain
+#endif
 
     defaults = collection->defaults;
 		
@@ -1756,21 +1785,32 @@ static void SaveDefaultCollection(default_collection_t *collection)
 
         // Print the name and line up all values at 30 characters
 
+#if PICO_ON_DEVICE
+        CFGWRITE("%s ", defaults[i].name);
+        chars_written = (int)strlen(defaults[i].name) + 1;
+#else
         chars_written = fprintf(f, "%s ", defaults[i].name);
+#endif
 
         for (; chars_written < 30; ++chars_written)
+        {
+#if PICO_ON_DEVICE
+            CFGWRITE(" ");
+#else
             fprintf(f, " ");
+#endif
+        }
 
         // Print the value
 
-        switch (defaults[i].type) 
+        switch (defaults[i].type)
         {
             case DEFAULT_KEY:
 
                 // use the untranslated version if we can, to reduce
                 // the possibility of screwing up the user's config
                 // file
-                
+
                 v = *defaults[i].location.key;
 
                 if (v == KEY_RSHIFT)
@@ -1808,38 +1848,76 @@ static void SaveDefaultCollection(default_collection_t *collection)
                     }
                 }
 
-	        fprintf(f, "%i", v);
+#if PICO_ON_DEVICE
+                CFGWRITE("%i", v);
+#else
+                fprintf(f, "%i", v);
+#endif
                 break;
 
             case DEFAULT_INT:
-	        fprintf(f, "%i", *defaults[i].location.i);
+#if PICO_ON_DEVICE
+                CFGWRITE("%i", *defaults[i].location.i);
+#else
+                fprintf(f, "%i", *defaults[i].location.i);
+#endif
                 break;
 
             case DEFAULT_INT_ISB8:
+#if PICO_ON_DEVICE
+                CFGWRITE("%i", *defaults[i].location.isb8);
+#else
                 fprintf(f, "%i", *defaults[i].location.isb8);
+#endif
                 break;
 
             case DEFAULT_MOUSEB:
+#if PICO_ON_DEVICE
+                CFGWRITE("%i", *defaults[i].location.mouseb);
+#else
                 fprintf(f, "%i", *defaults[i].location.mouseb);
+#endif
                 break;
 
             case DEFAULT_INT_HEX:
-	        fprintf(f, "0x%x", *defaults[i].location.i);
+#if PICO_ON_DEVICE
+                CFGWRITE("0x%x", *defaults[i].location.i);
+#else
+                fprintf(f, "0x%x", *defaults[i].location.i);
+#endif
                 break;
 
             case DEFAULT_FLOAT:
+#if PICO_ON_DEVICE
+                CFGWRITE("%f", *defaults[i].location.f);
+#else
                 fprintf(f, "%f", *defaults[i].location.f);
+#endif
                 break;
 
             case DEFAULT_STRING:
-	        fprintf(f,"\"%s\"", *defaults[i].location.s);
+#if PICO_ON_DEVICE
+                CFGWRITE("\"%s\"", *defaults[i].location.s);
+#else
+                fprintf(f, "\"%s\"", *defaults[i].location.s);
+#endif
                 break;
         }
 
+#if PICO_ON_DEVICE
+        CFGWRITE("\n");
+#else
         fprintf(f, "\n");
+#endif
     }
 
+#if PICO_ON_DEVICE
+    PicoFS_SaveFile(collection->filename, buffer, (int)(writer - buffer), NULL);
+    free(buffer);
+    #undef CFGWRITE
+#else
     fclose (f);
+#endif
 #endif
 }
 
@@ -1908,7 +1986,72 @@ static void SetVariable(default_t *def, const char *value)
 
 static void LoadDefaultCollection(default_collection_t *collection)
 {
-#if !NO_FILE_ACCESS
+#if PICO_ON_DEVICE
+    byte *filedata;
+    default_t *def;
+    char defname[80];
+    char strparm[100];
+    int filelen;
+
+    if (!PicoFS_IsAvailable())
+    {
+        return;
+    }
+
+    filelen = PicoFS_ReadFile(collection->filename, &filedata);
+    if (filelen <= 0)
+    {
+        return;
+    }
+
+    const char *line = (const char *)filedata;
+    const char *end = (const char *)filedata + filelen;
+
+    while (line < end)
+    {
+        const char *eol = line;
+        while (eol < end && *eol != '\n')
+        {
+            ++eol;
+        }
+
+        int len = (int)(eol - line);
+        if (len > 0)
+        {
+            char temp[256];
+            int copy_len = len < (int)sizeof(temp) - 1 ? len : (int)sizeof(temp) - 1;
+            memcpy(temp, line, copy_len);
+            temp[copy_len] = '\0';
+            strparm[0] = '\0';
+
+            if (sscanf(temp, "%79s %99[^\n]", defname, strparm) >= 1)
+            {
+                def = SearchCollection(collection, defname);
+
+                if (def != NULL && def->bound)
+                {
+                    size_t str_len = strlen(strparm);
+                    while (str_len > 0 && !isprint((uint)strparm[str_len - 1]))
+                    {
+                        strparm[--str_len] = '\0';
+                    }
+
+                    if (str_len >= 2 && strparm[0] == '"' && strparm[str_len - 1] == '"')
+                    {
+                        strparm[str_len - 1] = '\0';
+                        memmove(strparm, strparm + 1, sizeof(strparm) - 1);
+                    }
+
+                    SetVariable(def, strparm);
+                }
+            }
+        }
+
+        line = eol < end ? eol + 1 : eol;
+    }
+
+    free(filedata);
+#else
     FILE *f;
     default_t *def;
     char defname[80];

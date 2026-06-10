@@ -1224,6 +1224,7 @@ static void core1() {
     scanvideo_timing_enable(true);
 #if PICO_ON_DEVICE
     irq_set_pending(LOW_PRIO_IRQ);
+    multicore_lockout_victim_init();
 #endif
     sem_release(&core1_launch);
     while (true) {

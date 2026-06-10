@@ -14,6 +14,7 @@ if (PICO_ON_DEVICE)
     target_sources(common_pico INTERFACE
             ${CMAKE_CURRENT_LIST_DIR}/blit.S
             ${CMAKE_CURRENT_LIST_DIR}/picoflash.c
+            ${CMAKE_CURRENT_LIST_DIR}/picofs.c
             )
     pico_wrap_function(common_pico malloc)
     pico_wrap_function(common_pico calloc)

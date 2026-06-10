@@ -809,22 +809,16 @@ void M_DoSave(int slot)
 //
 static void SetDefaultSaveName(int slot)
 {
-#if !DOOM_TINY
-    // map from IWAD or PWAD?
-    if (W_IsIWADLump(maplumpinfo))
+    if (gamemode == commercial)
     {
         M_snprintf(savegamestrings[slot], SAVESTRINGSIZE,
-                   "%s", maplumpinfo->name);
+                   "level %d", gamemap);
     }
     else
     {
         M_snprintf(savegamestrings[slot], SAVESTRINGSIZE,
-                   "%s: %s", W_WadNameForLump(maplumpinfo),
-                   maplumpinfo->name);
+                   "level %d-%d", gameepisode, gamemap);
     }
-#else
-    strcpy(savegamestrings[slot], "SAVE");
-#endif
     M_ForceUppercase(savegamestrings[slot]);
     joypadSave = false;
 }
@@ -846,14 +840,11 @@ void M_SaveSelect(int choice)
 
     saveSlot = choice;
     M_StringCopy(stringEntryOldString, savegamestrings[choice], SAVESTRINGSIZE);
-    if (!strcmp(savegamestrings[choice], EMPTYSTRING))
-    {
-        savegamestrings[choice][0] = 0;
-        /* Prepopulate empty save slot with current level name so users
-         * without a keyboard have a sensible default. Keep cursor so user
-         * can edit or press Enter to accept. */
-        SetDefaultSaveName(choice);
-    }
+
+    /* Always prepopulate the slot with the current level name, even when
+     * overwriting an existing save. The old name is still kept in
+     * stringEntryOldString so ESC restores it if the user cancels. */
+    SetDefaultSaveName(choice);
     stringEntryBuffer = savegamestrings[choice];
     stringEntryIndex = strlen(savegamestrings[choice]);
     stringEntryMax = SAVESTRINGSIZE;

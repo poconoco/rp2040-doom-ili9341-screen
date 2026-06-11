@@ -1073,7 +1073,7 @@ void /*__scratch_x("scanlines")*/ fill_scanlines() {
             //dahai
             gpio_xor_mask(1<<LED_PIN);
 
-            if(frame < 5) {  
+            if(frame < 5 || frame % 10 == 0) {  
                 // poconoco
                 // Required to fix the initial screen corruption issue. 
                 // The first few frames after reset are not rendered correctly due to uninitialized state in the display controller. 

@@ -270,12 +270,16 @@ static void I_Pico_LoadSettingsDirect(void)
     const uint8_t *end_of_flash_addr = get_end_of_flash();
     const uint8_t *settings_addr = end_of_flash_addr - FLASH_SETTINGS_OFFSET;
 
-    // Read directly from flash (XIP mapping). 
-    // If the sector is erased (0xFF), we keep engine defaults.
-    if (settings_addr[4094] <= 15 && settings_addr[4095] <= 15)
+    // Read directly from flash (XIP mapping).
+    // We store volume + 1 (range 1-16) to distinguish 0 (muted) from
+    // empty flash (0xFF) or zeroed flash (0x00).
+    uint8_t stored_sfx = settings_addr[4094];
+    uint8_t stored_mus = settings_addr[4095];
+
+    if (stored_sfx >= 1 && stored_sfx <= 16 && stored_mus >= 1 && stored_mus <= 16)
     {
-        sfxVolume = settings_addr[4094];
-        musicVolume = settings_addr[4095];
+        sfxVolume = stored_sfx - 1;
+        musicVolume = stored_mus - 1;
 
         // Synchronize the engine's internal 0-127 volume state with 
         // the 0-15 values retrieved from flash.
@@ -297,8 +301,8 @@ static void I_Pico_SaveSettingsDirect(void)
     memcpy(settings_sector_buffer, end_of_flash_addr - FLASH_SETTINGS_OFFSET, sizeof(settings_sector_buffer));
 
     // Update the last two bytes of the sector
-    settings_sector_buffer[4094] = (uint8_t)sfxVolume;
-    settings_sector_buffer[4095] = (uint8_t)musicVolume;
+    settings_sector_buffer[4094] = (uint8_t)sfxVolume + 1;
+    settings_sector_buffer[4095] = (uint8_t)musicVolume + 1;
 
     // Perform the write safely
     I_PicoSoundPause(); 

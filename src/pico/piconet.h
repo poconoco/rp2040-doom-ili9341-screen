@@ -32,6 +32,7 @@ typedef struct {
     lobby_player_t players[NET_MAXPLAYERS];
 } lobby_state_t;
 
+#if USE_PICO_NET
 // one time initialization (set pulls etc)
 void piconet_init();
 void piconet_start_host(int8_t deathmatch, int8_t epi, int8_t skill);
@@ -44,6 +45,7 @@ void piconet_start_game();
 int piconet_get_lobby_state(lobby_state_t *state);
 void piconet_new_local_tic(int tic);
 int piconet_maybe_recv_tic(int fromtic);
+#endif
 
 extern char player_name[MAXPLAYERNAME];
 

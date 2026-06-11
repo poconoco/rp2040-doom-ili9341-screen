@@ -174,7 +174,7 @@ static int pico_fs_load_files(const uint8_t *container, uint32_t container_size,
 boolean PicoFS_IsAvailable(void)
 {
     size_t flash_size = get_end_of_flash() - (const uint8_t *)XIP_BASE;
-    return flash_size >= 10u * 1024u * 1024u;
+    return flash_size >= 2u * 1024u * 1024u;
 }
 
 boolean PicoFS_FileExists(const char *filename)

@@ -22,7 +22,12 @@
 #include "hardware/watchdog.h"
 #include "doomtype.h"
 #include "doom/p_saveg.h"
+#include "picoflash.h" // For picoflash_sector_program
+#include "i_picosound.h" // For I_PicoSoundPause/Resume
+#include <doom/s_sound.h>
+#include <doom/doomstat.h>
 #endif
+
 #if USB_SUPPORT
 #include "tusb.h"
 #endif
@@ -249,6 +254,85 @@ void I_PrintStartupBanner(const char *gamedescription)
 // Returns true if stdout is a real console, false if it is a file
 //
 
+#if PICO_ON_DEVICE
+static int last_sfx_vol = -1;
+static int last_mus_vol = -1;
+static boolean last_menuactive = false;
+static int save_settings_tics = 0;
+static boolean settings_loaded = false;
+
+// Use the last 4KB sector of flash for settings
+#define FLASH_SETTINGS_OFFSET 0x1000
+static uint8_t settings_sector_buffer[4096] __aligned(4);
+
+static void I_Pico_LoadSettingsDirect(void)
+{
+    const uint8_t *end_of_flash_addr = get_end_of_flash();
+    const uint8_t *settings_addr = end_of_flash_addr - FLASH_SETTINGS_OFFSET;
+
+    // Read directly from flash (XIP mapping). 
+    // If the sector is erased (0xFF), we keep engine defaults.
+    if (settings_addr[4094] <= 15 && settings_addr[4095] <= 15)
+    {
+        sfxVolume = settings_addr[4094];
+        musicVolume = settings_addr[4095];
+
+        // Synchronize the engine's internal 0-127 volume state with 
+        // the 0-15 values retrieved from flash.
+        S_SetSfxVolume(sfxVolume * 127 / 15);
+        S_SetMusicVolume(musicVolume * 127 / 15);
+    }
+
+    last_sfx_vol = sfxVolume;
+    last_mus_vol = musicVolume;
+    settings_loaded = true;
+}
+
+static void I_Pico_SaveSettingsDirect(void)
+{
+    const uint8_t *end_of_flash_addr = get_end_of_flash();
+    uint32_t settings_sector_flash_offset = (uint32_t)(end_of_flash_addr - FLASH_SETTINGS_OFFSET - (const uint8_t *)XIP_BASE);
+
+    // Read the current 4KB sector into RAM scratchpad
+    memcpy(settings_sector_buffer, end_of_flash_addr - FLASH_SETTINGS_OFFSET, sizeof(settings_sector_buffer));
+
+    // Update the last two bytes of the sector
+    settings_sector_buffer[4094] = (uint8_t)sfxVolume;
+    settings_sector_buffer[4095] = (uint8_t)musicVolume;
+
+    // Perform the write safely
+    I_PicoSoundPause(); 
+    picoflash_sector_program(settings_sector_flash_offset, settings_sector_buffer);
+    I_PicoSoundResume();
+}
+
+void I_Pico_CheckSettings(void)
+{
+    // Restoration: Only happens once at launch, but deferred here to 
+    // ensure we override engine defaults (M_LoadDefaults).
+    if (!settings_loaded)
+    {
+        I_Pico_LoadSettingsDirect();
+        return;
+    }
+
+    // Performance: If menu state hasn't changed, exit immediately.
+    if (menuactive == last_menuactive) return;
+
+    // Save: Triggered immediately when the menu is closed.
+    if (last_menuactive && !menuactive)
+    {
+        if (sfxVolume != last_sfx_vol || musicVolume != last_mus_vol)
+        {
+            I_Pico_SaveSettingsDirect();
+            last_sfx_vol = sfxVolume;
+            last_mus_vol = musicVolume;
+        }
+    }
+    last_menuactive = menuactive;
+}
+#endif
+
 void I_Init() {
     I_InputInit();
 }
@@ -276,7 +360,9 @@ void I_BindVariables(void)
 
 #include "pico/sem.h"
 #include "whddata.h"
+#if USE_PICO_NET
 #include "piconet.h"
+#endif
 
 int8_t at_exit_screen;
 

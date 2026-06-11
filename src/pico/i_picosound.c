@@ -170,6 +170,7 @@ static const int index_table[] = {
 static void (*music_generator)(audio_buffer_t *buffer);
 
 static boolean sound_initialized = false;
+static bool audio_paused = false;
 static channel_t channels[NUM_SOUND_CHANNELS];
 
 static boolean use_sfx_prefix;
@@ -186,6 +187,41 @@ void I_Pico_SetMasterVolume(int v)
 
 static inline bool is_channel_playing(int channel) {
     return channels[channel].decompressed_size != 0;
+}
+
+void I_PicoSoundPause(void) {
+    if (!sound_initialized || audio_paused) return;
+    audio_paused = true;
+
+#if USE_CUSTOM_AUDIO_PWM
+    // Abort all DMA channels used for audio
+    dma_channel_abort(pwm_dma_chan);
+    dma_channel_abort(trigger_dma_chan);
+    dma_channel_abort(sample_dma_chan);
+    // Disable DMA IRQ
+    irq_set_enabled(DMA_IRQ_1, false);
+    // Disable PWM output
+    pwm_set_enabled(pwm_gpio_to_slice_num(PICO_AUDIO_PWM_PIO), false);
+#elif USE_AUDIO_I2S
+    audio_i2s_set_enabled(false);
+#elif USE_AUDIO_PWM
+    audio_pwm_set_enabled(false);
+#endif
+}
+
+void I_PicoSoundResume(void) {
+    if (!sound_initialized || !audio_paused) return;
+    audio_paused = false;
+
+#if USE_CUSTOM_AUDIO_PWM
+    pwm_set_enabled(pwm_gpio_to_slice_num(PICO_AUDIO_PWM_PIO), true);
+    irq_set_enabled(DMA_IRQ_1, true);
+    dma_channel_start(trigger_dma_chan); // Restart the DMA chain
+#elif USE_AUDIO_I2S
+    audio_i2s_set_enabled(true);
+#elif USE_AUDIO_PWM
+    audio_pwm_set_enabled(true);
+#endif
 }
 
 static inline void stop_channel(int channel) {
@@ -440,6 +476,7 @@ int __not_in_flash_func(audio_play_once)(const uint8_t *samples, int len)
 static void I_Pico_UpdateSound(void)
 {
     if (!sound_initialized) return;
+    if (audio_paused) return;
 
     // todo note this is called from D_Main around the game loop, which is fast enough now but may not be.
     //  we can either poll more frequently, or use IRQ but then we have to be careful with threading (both OPL and channels)

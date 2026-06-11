@@ -44,6 +44,10 @@
 //dahai
 #include "hardware/gpio.h"
 
+#if PICO_ON_DEVICE
+extern void I_Pico_CheckSettings(void);
+#endif
+
 static const int scancode_translate_table[] = SCANCODE_TO_KEYS_ARRAY;
 
 // Lookup table for mapping ASCII characters to their equivalent when
@@ -658,6 +662,11 @@ void I_GetEvent() {
 #if USB_SUPPORT
     tuh_task();
 #endif
+
+#if PICO_ON_DEVICE
+    I_Pico_CheckSettings();
+#endif
+
     //dahai
     magc_key_scan();
 

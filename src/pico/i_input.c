@@ -586,8 +586,8 @@ static int key_RT_old=1;
     get_key = ((gpio_get(PIN_A)==0)?0:1);
     if(get_key != key_A_old){
         key_A_old = get_key;
-        if (get_key==0) {      pico_key_down(SDL_SCANCODE_SPACE, 0, 0); pico_key_down(SDL_SCANCODE_LSHIFT, 0, 0); change_weapon_action = 1;}
-        else {                       pico_key_up(SDL_SCANCODE_SPACE, 0, 0); pico_key_up(SDL_SCANCODE_LSHIFT, 0, 0); change_weapon_action = 0;}
+        if (get_key==0) {      pico_key_down(SDL_SCANCODE_SPACE, 0, 0); pico_key_down(SDL_SCANCODE_LSHIFT, 0, 0); pico_key_down(SDL_SCANCODE_LALT, 0, 0); change_weapon_action = 1;}
+        else {                       pico_key_up(SDL_SCANCODE_SPACE, 0, 0); pico_key_up(SDL_SCANCODE_LSHIFT, 0, 0); pico_key_up(SDL_SCANCODE_LALT, 0, 0); change_weapon_action = 0;}
     }
     get_key = ((gpio_get(PIN_B)==0)?0:1);
     if(get_key != key_B_old){

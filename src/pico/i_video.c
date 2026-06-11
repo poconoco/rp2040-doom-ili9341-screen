@@ -1216,6 +1216,7 @@ static void core1() {
     scanvideo_setup(&VGA_MODE);
 //    sem_release(&init_sem);
 #if PICO_ON_DEVICE
+    irq_set_priority(LOW_PRIO_IRQ, 0xC0); // Lower than lockout priority
     irq_set_exclusive_handler(LOW_PRIO_IRQ, fill_scanlines);
     irq_set_enabled(LOW_PRIO_IRQ, true);
     //dahai

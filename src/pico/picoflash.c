@@ -10,7 +10,7 @@
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
 
-#define FLASH_BLOCK_ERASE_CMD 0xd8
+#define FLASH_BLOCK_ERASE_CMD 0x20
 
 //-----------------------------------------------------------------------------
 // Infrastructure for reentering XIP mode after exiting for programming (take
@@ -32,10 +32,10 @@ static void __no_inline_not_in_flash_func(flash_init_boot2_copyout)(uint32_t boo
 }
 
 static void __no_inline_not_in_flash_func(flash_enable_xip_via_boot2)(const uint32_t boot2_copyout[BOOT2_SIZE_WORDS]) {
-    ((void (*)(void))boot2_copyout+1)();
+    ((void (*)(void))((uintptr_t)boot2_copyout + 1))();
 }
 
-#define FLASH_BLOCK_SIZE (1u << 16)
+#define FLASH_BLOCK_SIZE (1u << 12)
 
 void __no_inline_not_in_flash_func(picoflash_sector_program)(uint32_t flash_offs, const uint8_t *data) {
     rom_connect_internal_flash_fn connect_internal_flash = (rom_connect_internal_flash_fn)rom_func_lookup_inline(ROM_FUNC_CONNECT_INTERNAL_FLASH);
@@ -43,7 +43,7 @@ void __no_inline_not_in_flash_func(picoflash_sector_program)(uint32_t flash_offs
     rom_flash_range_program_fn flash_range_program = (rom_flash_range_program_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_RANGE_PROGRAM);
     rom_flash_flush_cache_fn flash_flush_cache = (rom_flash_flush_cache_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_FLUSH_CACHE);
     rom_flash_range_erase_fn flash_range_erase = (rom_flash_range_erase_fn)rom_func_lookup_inline(ROM_FUNC_FLASH_RANGE_ERASE);
-    assert(connect_internal_flash && flash_exit_xip && flash_range_program && flash_flush_cache);
+    assert(connect_internal_flash && flash_exit_xip && flash_range_program && flash_flush_cache && flash_range_erase);
     uint32_t boot2_copyout[BOOT2_SIZE_WORDS];
     flash_init_boot2_copyout(boot2_copyout);
 
@@ -58,12 +58,15 @@ void __no_inline_not_in_flash_func(picoflash_sector_program)(uint32_t flash_offs
         }
     }
 
+    uint32_t ints = save_and_disable_interrupts();
+    watchdog_update(); // Feed watchdog before potentially long erase
     connect_internal_flash();
     flash_exit_xip();
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE, FLASH_BLOCK_SIZE, FLASH_BLOCK_ERASE_CMD);
     flash_range_program(flash_offs, data, FLASH_SECTOR_SIZE);
     flash_flush_cache(); // Note this is needed to remove CSn IO force as well as cache flushing
     flash_enable_xip_via_boot2(boot2_copyout);
+    restore_interrupts(ints);
 
     if (multicore_lockout_victim_is_initialized(get_core_num() ^ 1)) {
         multicore_lockout_end_timeout_us(2000000ull);

@@ -622,6 +622,9 @@ AM_Responder
 
     rc = false;
 
+    if (menuactive)
+        return false;
+
 #if !NO_USE_JOYSTICK
     if (ev->type == ev_joystick && joybautomap >= 0
         && (ev->data1 & (1 << joybautomap)) != 0)

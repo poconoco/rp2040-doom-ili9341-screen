@@ -35,7 +35,7 @@ For an ILI9341 SPI display, connect:
 | **CS** | Chip Select | **GPIO 17** |
 | **DC** | Data/Command | **GPIO 20** |
 | **RESET** | Reset | **GPIO 21** |
-| **BL** | Backlight | **GPIO 22** |
+| **BL**/**LED** | Backlight | **GPIO 22** |
 | **MISO** | Data Out | Not Used |
 | **VCC** | Power (VIN) | **3V3 OUT** |
 | **GND** | Ground | **Any GND** |
@@ -56,16 +56,20 @@ The module I used is MAX98357A, should also be compatible with PCM5102A
 
 Buttons should short the specified GPIO pin to ground when pressed
 
-| Define Button | GPIO | Function in DOOM |
+| Define Button | PiCO GPIO | Function in DOOM |
 | :--- | :--- | :--- |
 | **PIN_UP** | 9 | Move Forward |
 | **PIN_DN** | 5 | Move Backward |
-| **PIN_LT** | 8 | Turn Left |
-| **PIN_RT** | 6 | Turn Right |
-| **PIN_A** | 2 | **Fire** (Space + Left Shift) |
-| **PIN_B** | 3 | **Open Door / Use** (Right Ctrl) |
-| **PIN_ST** | 4 | **Menu / Enter** (Enter + Tab) |
-| **PIN_SL** | 0 | **Escape** (Pause / Menu) |
+| **PIN_LT** | 8 | Left |
+| **PIN_RT** | 6 | Right |
+| **PIN_A** | 2 | **Fire** |
+| **PIN_B** | 3 | **Open Door / Run / Strafe** |
+| **PIN_ST** | 4 | **Menu / Enter** (Enter / Tab) |
+| **PIN_SL** | 0 | **Escape** (Esc) |
+
+## Wiring diagram
+
+![Wiring diagram](./SCHEMATIC/schematic.png "Wiring diagram")
 
 # Build the software
 

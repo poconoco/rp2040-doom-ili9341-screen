@@ -20,6 +20,7 @@
 #include "pico/stdio.h"
 #if PICO_ON_DEVICE
 #include "hardware/watchdog.h"
+#include "hardware/gpio.h"
 #include "doomtype.h"
 #include "doom/p_saveg.h"
 #include "picoflash.h" // For picoflash_sector_program
@@ -270,22 +271,32 @@ static void I_Pico_LoadSettingsDirect(void)
     const uint8_t *end_of_flash_addr = get_end_of_flash();
     const uint8_t *settings_addr = end_of_flash_addr - FLASH_SETTINGS_OFFSET;
 
-    // Read directly from flash (XIP mapping).
-    // We store volume + 1 (range 1-16) to distinguish 0 (muted) from
-    // empty flash (0xFF) or zeroed flash (0x00).
-    uint8_t stored_sfx = settings_addr[4094];
-    uint8_t stored_mus = settings_addr[4095];
-
-    if (stored_sfx >= 1 && stored_sfx <= 16 && stored_mus >= 1 && stored_mus <= 16)
+    if (gpio_get(5) == 0)
     {
-        sfxVolume = stored_sfx - 1;
-        musicVolume = stored_mus - 1;
-
-        // Synchronize the engine's internal 0-127 volume state with 
-        // the 0-15 values retrieved from flash.
-        S_SetSfxVolume(sfxVolume * 127 / 15);
-        S_SetMusicVolume(musicVolume * 127 / 15);
+        // If the DOWN button (GPIO 5) is held during startup, ignore saved settings 
+        // and force the sound volume to minimum (0).
+        sfxVolume = 0;
+        musicVolume = 0;
     }
+    else
+    {
+        // Read directly from flash (XIP mapping).
+        // We store volume + 1 (range 1-16) to distinguish 0 (muted) from
+        // empty flash (0xFF) or zeroed flash (0x00).
+        uint8_t stored_sfx = settings_addr[4094];
+        uint8_t stored_mus = settings_addr[4095];
+        if (stored_sfx >= 1 && stored_sfx <= 16 && stored_mus >= 1 && stored_mus <= 16)
+        {
+            sfxVolume = stored_sfx - 1;
+            musicVolume = stored_mus - 1;
+
+        }
+    }
+
+    // Synchronize the engine's internal 0-127 volume state with
+    // the 0-15 values retrieved from flash.
+    S_SetSfxVolume(sfxVolume * 127 / 15);
+    S_SetMusicVolume(musicVolume * 127 / 15);
 
     last_sfx_vol = sfxVolume;
     last_mus_vol = musicVolume;

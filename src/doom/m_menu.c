@@ -887,7 +887,7 @@ void M_SaveGame (int choice)
 
 boolean M_QuickSaveResponse(int key)
 {
-    if (key == key_menu_confirm)
+    if (key == key_menu_confirm || key == KEY_ENTER)
     {
 	M_DoSave(quickSaveSlot);
 	S_StartUnpositionedSound( sfx_swtchx);
@@ -1143,7 +1143,7 @@ boolean M_FinishGameSelection() {
 
 boolean M_VerifyNightmare(int key)
 {
-    if (key != key_menu_confirm)
+    if (key != key_menu_confirm && key != KEY_ENTER)
 	return false;
     skill = nightmare;
     return M_FinishGameSelection();
@@ -1492,7 +1492,7 @@ static const sfxenum_t quitsounds2[8] =
 
 boolean M_QuitResponse(int key)
 {
-    if (key != key_menu_confirm)
+    if (key != key_menu_confirm && key != KEY_ENTER)
 	return false;
     if (!netgame)
     {
@@ -2039,7 +2039,8 @@ boolean M_Responder (event_t* ev)
 	if (messageNeedsInput)
         {
             if (key != ' ' && key != KEY_ESCAPE
-             && key != key_menu_confirm && key != key_menu_abort)
+             && key != key_menu_confirm && key != key_menu_abort
+             && key != KEY_ENTER)
             {
                 return false;
             }
@@ -2620,4 +2621,3 @@ void M_Init (void)
     opldev = M_CheckParm("-opldev") > 0;
 #endif
 }
-

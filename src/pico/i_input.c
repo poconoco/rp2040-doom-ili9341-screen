@@ -606,16 +606,21 @@ static int key_RT_old=1;
             else
             #endif
             {
-            if (menuactive || gamestate != GS_LEVEL)
-            {
-                pico_key_down(SDL_SCANCODE_RETURN, 0, 0);
+                if (menuactive || gamestate != GS_LEVEL)
+                {
+                    pico_key_down(SDL_SCANCODE_RETURN, 0, 0);
+                }
+                else
+                {
+                    pico_key_down(SDL_SCANCODE_TAB, 0, 0);
+                }
             }
-            else
-            {
-                pico_key_down(SDL_SCANCODE_TAB, 0, 0);
-            }
-            }
-        }else {                       pico_key_up(SDL_SCANCODE_RETURN, 0, 0); pico_key_up(SDL_SCANCODE_TAB, 0, 0); pico_key_up(SDL_SCANCODE_KP_PLUS, 0, 0); pico_key_up(SDL_SCANCODE_ESCAPE, 0, 0);}
+        } else {
+            pico_key_up(SDL_SCANCODE_RETURN, 0, 0);
+            pico_key_up(SDL_SCANCODE_TAB, 0, 0);
+            pico_key_up(SDL_SCANCODE_KP_PLUS, 0, 0);
+            pico_key_up(SDL_SCANCODE_ESCAPE, 0, 0);
+        }
 
     }
     get_key = ((gpio_get(PIN_SL)==0)?0:1);

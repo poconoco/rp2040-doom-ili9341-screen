@@ -579,18 +579,27 @@ void __attribute((noreturn)) I_Quit (void)
     sem_acquire_blocking(&display_frame_freed);
     next_video_type = VIDEO_TYPE_TEXT;
     sem_release(&render_frame_ready);
-    at_exit_screen = 1;
-    I_StartTextInput(0,0,0,0);
-    uint8_t buffer[80];
-    buffer[0] = 0;
-    exit_screen_kb_buffer_80 = buffer; // fine as this function never returns
+
+    // Prank: Clear the ENDOOM screen and show a fake DOS prompt.
+    if (text_screen_data) {
+        memset(text_screen_data, 0, 80 * 25 * 2);
+        // Write "C:>_" (light gray on black background)
+        text_screen_data[0] = 'C';
+        text_screen_data[1] = 0x07; 
+        text_screen_data[2] = ':';
+        text_screen_data[3] = 0x07;
+        text_screen_data[4] = '>';
+        text_screen_data[5] = 0x07;
+        // Blinking underline cursor
+        text_screen_data[6] = '_';
+        text_screen_data[7] = 0x87; 
+    }
+
+    at_exit_screen = 0; // Disable exit screen interaction
+
     while (true) {
-#if PICO_ON_DEVICE
-        // no idea why the default timeout of 50 ms is NOT working here, hack hack hack away!
-        I_GetEventTimeout(1000);
 #if USB_SUPPORT
         tuh_task();
-#endif
 #endif
         I_UpdateSound();
     }

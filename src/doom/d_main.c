@@ -58,6 +58,7 @@
 #include "i_joystick.h"
 #include "i_system.h"
 #include "i_timer.h"
+#include "doomkeys.h" // Required for KEY_ENTER
 #include "i_video.h"
 
 #include "g_game.h"
@@ -2125,4 +2126,3 @@ void D_DoomMain (void)
 
     D_DoomLoop ();  // never returns
 }
-

@@ -175,16 +175,6 @@ static channel_t channels[NUM_SOUND_CHANNELS];
 
 static boolean use_sfx_prefix;
 
-/* Master volume 0..255 (255 = full) */
-static int pico_master_volume = 255;
-
-void I_Pico_SetMasterVolume(int v)
-{
-    if (v < 0) v = 0;
-    if (v > 255) v = 255;
-    pico_master_volume = v;
-}
-
 static inline bool is_channel_playing(int channel) {
     return channels[channel].decompressed_size != 0;
 }
@@ -622,14 +612,6 @@ static void I_Pico_UpdateSound(void)
 #endif
         buffer->sample_count = buffer->sample_count * I2S_OVERSAMPLING;
 #endif
-        /* Apply master volume scaling (0..255) to 16-bit samples if not full volume */
-        if (pico_master_volume != 255) {
-            int total_samples = buffer->sample_count * audio_format.channel_count;
-            int16_t *out = (int16_t *)buffer->buffer->bytes;
-            for (int i = 0; i < total_samples; ++i) {
-            out[i] = (int16_t)((out[i] * (int)pico_master_volume) / 255);
-            }
-        }
         give_audio_buffer(producer_pool, buffer);
 
     }
@@ -702,14 +684,6 @@ static void I_Pico_UpdateSound(void)
                 } else {
                     fade_state = FS_NONE;
                 }
-            }
-        }
-        if (pico_master_volume != 255) {
-            uint8_t *buf = buffer;
-            for (int i = 0; i < AUDIO_BUFFER_SIZE; ++i) {
-                int v = (int)buf[i] - 128;
-                v = (v * pico_master_volume) / 255;
-                buf[i] = (uint8_t)(v + 128);
             }
         }
         // give_audio_buffer(producer_pool, buffer);

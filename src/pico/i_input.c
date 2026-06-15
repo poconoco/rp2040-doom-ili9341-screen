@@ -22,6 +22,7 @@
 //#include "SDL_keycode.h"
 #include <doom/sounds.h>
 #include <doom/s_sound.h>
+#include <doom/doomstat.h>
 #include "pico.h"
 #include "doomkeys.h"
 #include "doomtype.h"
@@ -605,8 +606,14 @@ static int key_RT_old=1;
             else
             #endif
             {
-            pico_key_down(SDL_SCANCODE_RETURN, 0, 0); 
-            pico_key_down(SDL_SCANCODE_TAB, 0, 0);
+            if (menuactive || gamestate != GS_LEVEL)
+            {
+                pico_key_down(SDL_SCANCODE_RETURN, 0, 0);
+            }
+            else
+            {
+                pico_key_down(SDL_SCANCODE_TAB, 0, 0);
+            }
             }
         }else {                       pico_key_up(SDL_SCANCODE_RETURN, 0, 0); pico_key_up(SDL_SCANCODE_TAB, 0, 0); pico_key_up(SDL_SCANCODE_KP_PLUS, 0, 0); pico_key_up(SDL_SCANCODE_ESCAPE, 0, 0);}
 

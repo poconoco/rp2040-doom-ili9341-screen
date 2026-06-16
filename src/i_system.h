@@ -53,7 +53,6 @@ ticcmd_t* I_BaseTiccmd (void);
 // Clean exit, displays sell blurb.
 void I_Quit (void) NORETURN;
 #if DOOM_TINY
-extern void handle_exit_key_down(int scancode, boolean shift, uint8_t *kb_buffer, int kb_len);
 extern int8_t at_exit_screen;
 extern uint8_t *exit_screen_kb_buffer_80;
 #endif

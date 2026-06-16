@@ -493,10 +493,6 @@ static void pico_key_down(int scancode, int keysym, int modifiers) {
     event.data2 = GetLocalizedKey(scancode);
     event.data3 = GetTypedChar(scancode, modifiers & WITH_SHIFT ? 1 : 0);
 
-    if (at_exit_screen) {
-        handle_exit_key_down(scancode, modifiers & WITH_SHIFT ? 1 : 0, exit_screen_kb_buffer_80, 80);
-        return;
-    }
     if (event.data1 != 0)
     {
         D_PostEvent(&event);

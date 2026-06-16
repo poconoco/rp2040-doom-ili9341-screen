@@ -77,7 +77,7 @@ typedef struct __packed {
     const uint8_t w;
     const uint8_t h;
 } txt_font_t;
-#define TXT_SCREEN_W 80
+#define TXT_SCREEN_W 40
 #include "fonts/normal.h"
 
 static uint16_t ega_colors[] = {
@@ -480,10 +480,10 @@ static void finish_text_buffer(scanvideo_scanline_buffer_t *buffer) {
     uint16_t * p = (uint16_t *)buffer->data;
     p[0] = video_doom_offset_raw_run_half;
     p[1] = p[2];
-    p[2] = SCREENWIDTH*2 - 3;
-    buffer->data[SCREENWIDTH + 1] = video_doom_offset_raw_1p;
-    buffer->data[SCREENWIDTH + 2] = video_doom_offset_end_of_scanline_skip_ALIGN;
-    buffer->data_used = SCREENWIDTH + 3;
+    p[2] = SCREENWIDTH - 3; 
+    buffer->data[SCREENWIDTH/2 + 1] = video_doom_offset_raw_1p;
+    buffer->data[SCREENWIDTH/2 + 2] = video_doom_offset_end_of_scanline_skip_ALIGN;
+    buffer->data_used = SCREENWIDTH/2 + 3;
 }
 
 static void __not_in_flash_func(render_text_mode_half_scanline)(scanvideo_scanline_buffer_t *buffer, const uint8_t *text_data, int yoffset) {
@@ -497,7 +497,8 @@ static void __not_in_flash_func(render_text_mode_half_scanline)(scanvideo_scanli
 //    assert(normal_font.w == 8);
 //    assert(normal_font.h == 16);
     const uint8_t *font_base = text_font_cpy + yoffset;
-    for(uint i=0;i<80;i++) {
+
+for(uint i=0; i<TXT_SCREEN_W; i++) {
         uint fg = text_data[1] & 0xf;
         uint bg = (text_data[1] >> 4) & 0xf;
         if (bg & 0x8) {
@@ -591,42 +592,26 @@ static void __not_in_flash_func(render_text_mode_half_scanline)(scanvideo_scanli
 }
 
 static void __noinline render_text_mode_scanline(scanvideo_scanline_buffer_t *buffer, int scanline) {
-#if 1
     const uint8_t *text_data = text_screen_data;
     assert(text_data);
-    text_data += TXT_SCREEN_W * 2 * (scanline/8);
+    
+    // 1. Advance the text row every 16 scanlines (instead of 8)
+    text_data += TXT_SCREEN_W * 2 * (scanline / 16);
     check_text_buffer(buffer);
-    render_text_mode_half_scanline(buffer, text_data, (scanline & 7u)*2 );
+    
+    // 2. Fetch the exact pixel row of the font (0 through 15) without skipping
+    render_text_mode_half_scanline(buffer, text_data, scanline % 16);
     finish_text_buffer(buffer);
+    
     if (buffer->link) {
         buffer->link_after = 2;
         buffer->link->link_after = 0;
         check_text_buffer(buffer->link);
-        render_text_mode_half_scanline(buffer->link, text_data, (scanline & 7u)*2 + 1);
+        
+        // 3. Ensure the linked buffer also doesn't skip lines
+        render_text_mode_half_scanline(buffer->link, text_data, scanline % 16);
         finish_text_buffer(buffer->link);
     }
-#else
-    uint16_t *p = (uint16_t *)buffer->data;
-    p[0] = video_doom_offset_raw_run;
-    p[1] = p[2];
-    p[2] = SCREENWIDTH - 3;
-    memset(buffer->data+1, 0x1f * ((scanline + 8) / 8), SCREENWIDTH * 2);
-    if (buffer->link) {
-        buffer->link_after = 2;
-        scanvideo_scanline_buffer_t *buffer2  = buffer->link;
-        memset(buffer2->data+1, 0xf1 * ((scanline + 8) / 8), SCREENWIDTH * 2);
-        p = (uint16_t *)buffer2->data;
-        p[0] = video_doom_offset_raw_run;
-        p[1] = p[2];
-        p[2] = SCREENWIDTH - 3;
-        buffer2->data[SCREENWIDTH / 2 + 1] = video_doom_offset_raw_1p;
-        buffer2->data[SCREENWIDTH / 2 + 2] = video_doom_offset_end_of_scanline_skip_ALIGN;
-        buffer2->data_used = SCREENWIDTH / 2 + 3;
-    }
-    buffer->data[SCREENWIDTH / 2 + 1] = video_doom_offset_raw_1p;
-    buffer->data[SCREENWIDTH / 2 + 2] = video_doom_offset_end_of_scanline_skip_ALIGN;
-    buffer->data_used = SCREENWIDTH / 2 + 3;
-#endif
 }
 #endif
 

@@ -387,8 +387,8 @@ static int8_t entry_line = -1;
 
 static void scroll_line() {
     if (entry_line == 24) {
-        memmove(text_screen_data, text_screen_data + 160, 160 * 24);
-        memset(text_screen_data + entry_line * 160, 0, 160);
+        memmove(text_screen_data, text_screen_data + 80, 80 * 24);
+        memset(text_screen_data + entry_line * 80, 0, 80);
     } else
         entry_line++;
 }
@@ -435,135 +435,6 @@ void write_num(int num, char *buffer, int len) {
     }
 }
 
-// waste space much?
-void handle_exit_key_down(int scancode, bool shift, uint8_t *kb_buffer, int kb_len) {
-    int l = strlen((char*)kb_buffer);
-    if (entry_line < 0) {
-        entry_line = 24;
-        if (scancode == SCANCODE_RETURN || scancode == SCANCODE_SPACE) scancode = 0; // eat first key
-    }
-    if (scancode == SCANCODE_RETURN) {
-        (text_screen_data + 160 * entry_line)[l * 2 + 7] = 0; // remove cursor
-        uint8_t *cmd = kb_buffer;
-        while (*cmd == ' ') cmd++;
-        uint8_t *foo = cmd;
-        while (*foo && *foo != ' ') {
-            if (*foo >= 'a' && *foo <= 'z') *foo -= 'a' - 'A';
-            foo++;
-        }
-        *foo++ = 0;
-        if (!strcmp((char*)cmd, "DOOM") || !strcmp((char*)cmd, "DOOM.EXE")) restart();
-        else if (!strcmp((char*)kb_buffer, "CLS")) {
-            memset(text_screen_data, 0, 80 * 25 * 2);
-            entry_line = 0;
-#if PICO_NO_HARDWARE
-            } else if (!strcmp((char*)kb_buffer, "exit")) {
-                exit(0);
-#endif
-        } else if (!strcmp((char*)cmd, "CD")) {
-            while (foo < kb_buffer + l && *foo == ' ') foo++;
-            if (foo >= kb_buffer + l || !*foo) {
-                write_text_line("A:\\");
-            } else if (*foo == '.' && (!foo[1] || foo[1]==' ')) {
-            } else {
-                write_text_line("Invalid directory");
-            }
-            scroll_line();
-            scroll_line();
-        } else if (!strcmp((char*)cmd, "DIR")) {
-            write_text_line("Directory of A:\\");
-            scroll_line();
-            char buf[80];
-            strcpy(buf, "11/02/1994  01:20 AM                   DOOM.EXE");
-            int binsize;
-#if PICO_ON_DEVICE
-            extern char __flash_binary_start;
-            extern char __flash_binary_end;
-            binsize = &__flash_binary_end - &__flash_binary_start;
-#else
-            binsize = 2428760;
-#endif
-#if PICO_ON_DEVICE
-            int disksize = (int)(get_end_of_flash() - (const uint8_t *)XIP_BASE);
-#else
-            int disksize = 1u << (32 - __builtin_clz(binsize + whdheader->size));
-#endif
-            write_num(binsize, buf + 27, 9);
-            write_text_line(buf);
-            sprintf(buf, "11/02/1994  07:03 PM                   %s", whdheader->name);
-            write_num(whdheader->size, buf + 27, 9);
-            write_text_line(buf);
-            int dsg_size = 0;
-#define SHOW_SLOTS 1
-#if PICO_ON_DEVICE && SHOW_SLOTS
-            flash_slot_info_t slots[7];
-            P_SaveGameGetExistingFlashSlotAddresses(slots, 7);
-            int filecount = 2;
-            for(int i=0;i<7;i++) {
-                if (slots[i].data) {
-                    sprintf(buf, "12/11/2021  04:21 PM                   %d.DSG", i);
-                    write_num(slots[i].size + 8, buf + 27, 9);
-                    write_text_line(buf);
-                    dsg_size += slots[i].size + 8;
-                    filecount++;
-                }
-            }
-            int filesize = whd_map_base + whdheader->size - (uint8_t *)XIP_BASE;
-            scroll_line();
-            sprintf(buf, "        %d File(s)                bytes", filecount);
-#else
-            int filesize = ((binsize + 2047) & ~2047) + ((whdheader->size + 2047) & ~2047);
-            scroll_line();
-            strcpy(buf, "        2 File(s)                bytes");
-#endif
-            write_num(binsize + whdheader->size + dsg_size, buf + 23, 9);
-            write_text_line(buf);
-            strcpy(buf, "        0 Dir(s)                 bytes free");
-            int remaining = disksize - filesize - dsg_size;
-            if (remaining < 0) remaining = 0;
-            write_num(remaining, buf + 23, 9);
-            write_text_line(buf);
-            scroll_line();
-        } else {
-            if (l) {
-                write_text_line("Bad command or file name");
-                scroll_line();
-            }
-            scroll_line();
-        }
-        kb_buffer[0] = 0;
-    } else if (scancode == SCANCODE_ESCAPE) {
-        kb_buffer[0] = 0;
-    } else if (scancode == SCANCODE_BACKSPACE) {
-        if (l) kb_buffer[l - 1] = 0;
-    } else if (scancode == SCANCODE_TAB) {
-        for(int max = (l + 8) & ~7; l < max && l < 80 - 4; l++) {
-            kb_buffer[l] = 32;
-        }
-        kb_buffer[l+1] = 0;
-    } else {
-        int key = GetTypedChar(scancode, shift);
-        if (key && key < 127 && l < 80 - 4) {
-            kb_buffer[l] = key;
-            kb_buffer[l+1] = 0;
-        }
-    }
-    uint8_t *line = text_screen_data + 160 * entry_line;
-    memcpy(line, "A\007:\007\\\007", 6);
-    int i = 6;
-    l = strlen((char*)kb_buffer);
-    for(int j=0;j<l;j++) {
-        line[i] = kb_buffer[j];
-        line[i+1] = 7;
-        i += 2;
-    }
-    line[i] = '_';
-    line[i+1] = 0x87;
-    for(i+=2;i<160;i+=2) {
-        line[i+1] = 0;
-    }
-}
-
 uint8_t *exit_screen_kb_buffer_80;
 void __attribute((noreturn)) I_Quit (void)
 {
@@ -582,17 +453,21 @@ void __attribute((noreturn)) I_Quit (void)
 
     // Prank: Clear the ENDOOM screen and show a fake DOS prompt.
     if (text_screen_data) {
-        memset(text_screen_data, 0, 80 * 25 * 2);
-        // Write "C:>_" (light gray on black background)
-        text_screen_data[0] = 'C';
-        text_screen_data[1] = 0x07; 
-        text_screen_data[2] = ':';
-        text_screen_data[3] = 0x07;
-        text_screen_data[4] = '>';
-        text_screen_data[5] = 0x07;
+        // Clear a 40x25 buffer instead of 80x25
+        memset(text_screen_data, 0, 40 * 25 * 2);
+        
+        // Write "C:\DOOM2>_" a couple lines lower.
+        // 80 bytes per line (40 cols * 2 bytes)
+        int offset = 2 * 80; 
+        const char *prompt_str = " C:\\DOOM2>";
+        for (int i = 0; prompt_str[i] != '\0'; ++i) {
+            text_screen_data[offset + i * 2] = prompt_str[i];
+            text_screen_data[offset + i * 2 + 1] = 0x07;
+        }
         // Blinking underline cursor
-        text_screen_data[6] = '_';
-        text_screen_data[7] = 0x87; 
+        int cursor_pos = offset + (int)strlen(prompt_str) * 2;
+        text_screen_data[cursor_pos] = '_';
+        text_screen_data[cursor_pos + 1] = 0x87;
     }
 
     at_exit_screen = 0; // Disable exit screen interaction

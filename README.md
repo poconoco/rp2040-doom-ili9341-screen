@@ -7,6 +7,8 @@ This is a compilation of repos mentioned above along with required submodules an
 
 Instructions below were written and tested on Pop_OS 22.04 LTS, should work for most modern Ubuntu-based distros
 
+![3D printed case](./SCHEMATIC/cover-printables.jpg "3D printed case")
+
 # Required hardware
 
 Hardware modules I used to run this configuration of DOOM2:
@@ -171,3 +173,9 @@ The `0x10048000` is the special offset, the doom code will look for resources at
 Now, when pico is still connected and mounted as a flash drive, use your file manager to copy the `src/doom_tiny_nost.uf2` or `src/doom_tiny.uf2` (depending on if you are using super-tiny whd or not, see above) file to the root of that drive.
 
 When copying finishes, Pico should reboot automatically. And if everything was wired, built and flashed correctly, DOOM should run.
+
+# Other usefull stuff
+
+3D models for the case shown above can be downloaded from printables: https://www.printables.com/model/1756912-pi-pico-doom-gadget
+
+There is a video about working on this project (in Ukrainian): https://youtu.be/zW1zL9UEo74

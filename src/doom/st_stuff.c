@@ -1269,6 +1269,38 @@ void ST_Stop (void)
     st_stopped = true;
 }
 
+// Toggles god mode for the console player, exactly as the 'iddqd' cheat
+// does. Shared by the cheat-code parser below and the Options menu.
+void ST_ToggleGodMode(void)
+{
+    player_t *p = &players[consoleplayer];
+
+    p->cheats ^= CF_GODMODE;
+    if (p->cheats & CF_GODMODE) {
+        if (p->mo)
+            mobj_full(p->mo)->health = 100;
+
+        p->health = deh_god_mode_health;
+        p->message = DEH_String(STSTR_DQDON);
+    } else
+        p->message = DEH_String(STSTR_DQDOFF);
+}
+
+// Toggles no-clip mode for the console player, exactly as the 'idclip' /
+// 'idspispopd' cheat does. Shared by the cheat-code parser below and the
+// Options menu.
+void ST_ToggleNoClip(void)
+{
+    player_t *p = &players[consoleplayer];
+
+    p->cheats ^= CF_NOCLIP;
+
+    if (p->cheats & CF_NOCLIP)
+        p->message = DEH_String(STSTR_NCON);
+    else
+        p->message = DEH_String(STSTR_NCOFF);
+}
+
 // Respond to keyboard input events,
 //  intercept cheats.
 boolean
@@ -1302,15 +1334,7 @@ ST_Responder (event_t* ev)
         if (!netgame && gameskill != sk_nightmare) {
             // 'dqd' cheat for toggleable god mode
             if (cht_CheckCheat(&cheat_god, ev->data2)) {
-                plyr->cheats ^= CF_GODMODE;
-                if (plyr->cheats & CF_GODMODE) {
-                    if (plyr->mo)
-                        mobj_full(plyr->mo)->health = 100;
-
-                    plyr->health = deh_god_mode_health;
-                    plyr->message = DEH_String(STSTR_DQDON);
-                } else
-                    plyr->message = DEH_String(STSTR_DQDOFF);
+                ST_ToggleGodMode();
             }
                 // 'fa' cheat for killer fucking arsenal
             else if (cht_CheckCheat(&cheat_ammonokey, ev->data2)) {
@@ -1379,12 +1403,7 @@ ST_Responder (event_t* ev)
                 // For Doom 1, use the idspipsopd cheat; for all others, use
                 // idclip
 
-                plyr->cheats ^= CF_NOCLIP;
-
-                if (plyr->cheats & CF_NOCLIP)
-                    plyr->message = DEH_String(STSTR_NCON);
-                else
-                    plyr->message = DEH_String(STSTR_NCOFF);
+                ST_ToggleNoClip();
             }
             // 'behold?' power-up cheats
             for (i = 0; i < 6; i++) {

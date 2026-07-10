@@ -51,6 +51,12 @@ void ST_FpsDrawer(int fps);
 // Called when the console player is spawned on each level.
 void ST_Start (void);
 
+// Toggle god mode / no-clip for the console player (same effect as typing
+// the 'iddqd' / 'idclip' cheat codes). Used by the cheat-code parser and by
+// the Options menu toggles.
+void ST_ToggleGodMode (void);
+void ST_ToggleNoClip (void);
+
 // Called by startup code.
 void ST_Init (void);
 

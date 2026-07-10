@@ -141,6 +141,7 @@ cd ~/rp2040-doom-ili9341-screen/build_whd_gen/src/whd_gen
 cd ~/rp2040-doom-ili9341-screen
 mkdir build_pico
 cd build_pico
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DPICO_BOARD=pico -DPICO_SDK_PATH=../pico/pico-sdk -DPICO_EXTRAS_PATH=../pico/pico-extras ..
 make -j12
 ```

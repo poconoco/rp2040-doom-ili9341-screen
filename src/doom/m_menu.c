@@ -395,8 +395,6 @@ enum
 #endif
     endgame,
     messages,
-    cheat_iddqd,
-    cheat_idclip,
 #if !DOOM_TINY
     detail,
     scrnsize,
@@ -407,6 +405,8 @@ enum
     option_empty2,
 #endif
     soundvol,
+    cheat_iddqd,
+    cheat_idclip,
     opt_end
 } options_e;
 
@@ -417,8 +417,6 @@ static const menuitem_t OptionsMenu[]=
 #endif
     {1,VPATCH_NAME(M_ENDGAM),'e',	M_EndGame},
     {1,VPATCH_NAME(M_MESSG),	'm',M_ChangeMessages},
-    {1,VPATCH_NAME_INVALID,	'i',M_ToggleGodMode},
-    {1,VPATCH_NAME_INVALID,	'c',M_ToggleNoClip},
 #if !DOOM_TINY
     {1,VPATCH_NAME(M_DETAIL),'g',	M_ChangeDetail},
     {2,VPATCH_NAME(M_SCRNSZ),'s',	M_SizeDisplay},
@@ -428,7 +426,9 @@ static const menuitem_t OptionsMenu[]=
     {2,VPATCH_NAME(M_MSENS),'m',	M_ChangeSensitivity},
     {-1,VPATCH_NAME_INVALID,'\0',0},
 #endif
-    {1,VPATCH_NAME(M_SVOL),'s',	M_Sound}
+    {1,VPATCH_NAME(M_SVOL),'s',	M_Sound},
+    {1,VPATCH_NAME_INVALID,	'i',M_ToggleGodMode},
+    {1,VPATCH_NAME_INVALID,	'c',M_ToggleNoClip}
 };
 
 menu_t  OptionsDef =
@@ -1211,6 +1211,16 @@ void M_DrawOptions(void)
     V_DrawPatchDirect(OptionsDef.x + 120, OptionsDef.y + LINEHEIGHT * messages,
                       VPATCH_HANDLE(msgNames[showMessages]));
 
+#if !NO_USE_MOUSE
+    M_DrawThermo(OptionsDef.x, OptionsDef.y + LINEHEIGHT * (mousesens + 1),
+		 10, mouseSensitivity);
+#endif
+
+#if !DOOM_TINY
+    M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
+		 9,screenSize);
+#endif
+
     {
         char buf[24];
         boolean god = (players[consoleplayer].cheats & CF_GODMODE) != 0;
@@ -1222,16 +1232,6 @@ void M_DrawOptions(void)
         M_snprintf(buf, sizeof(buf), "IDCLIP: %s", noclip ? "Yes" : "No");
         M_WriteText(OptionsDef.x, OptionsDef.y + LINEHEIGHT * cheat_idclip + 4, buf);
     }
-
-#if !NO_USE_MOUSE
-    M_DrawThermo(OptionsDef.x, OptionsDef.y + LINEHEIGHT * (mousesens + 1),
-		 10, mouseSensitivity);
-#endif
-
-#if !DOOM_TINY
-    M_DrawThermo(OptionsDef.x,OptionsDef.y+LINEHEIGHT*(scrnsize+1),
-		 9,screenSize);
-#endif
 }
 
 void M_Options(int choice)

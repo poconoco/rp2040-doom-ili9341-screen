@@ -54,6 +54,8 @@
 
 #include "s_sound.h"
 
+#include "st_stuff.h"
+
 #include "doomstat.h"
 
 // Data.
@@ -223,6 +225,8 @@ static void M_ReadThis2(int choice);
 static void M_QuitDOOM(int choice);
 
 static void M_ChangeMessages(int choice);
+static void M_ToggleGodMode(int choice);
+static void M_ToggleNoClip(int choice);
 static void M_ChangeSensitivity(int choice);
 static void M_SfxVol(int choice);
 static void M_MusicVol(int choice);
@@ -391,6 +395,8 @@ enum
 #endif
     endgame,
     messages,
+    cheat_iddqd,
+    cheat_idclip,
 #if !DOOM_TINY
     detail,
     scrnsize,
@@ -411,6 +417,8 @@ static const menuitem_t OptionsMenu[]=
 #endif
     {1,VPATCH_NAME(M_ENDGAM),'e',	M_EndGame},
     {1,VPATCH_NAME(M_MESSG),	'm',M_ChangeMessages},
+    {1,VPATCH_NAME_INVALID,	'i',M_ToggleGodMode},
+    {1,VPATCH_NAME_INVALID,	'c',M_ToggleNoClip},
 #if !DOOM_TINY
     {1,VPATCH_NAME(M_DETAIL),'g',	M_ChangeDetail},
     {2,VPATCH_NAME(M_SCRNSZ),'s',	M_SizeDisplay},
@@ -1203,6 +1211,18 @@ void M_DrawOptions(void)
     V_DrawPatchDirect(OptionsDef.x + 120, OptionsDef.y + LINEHEIGHT * messages,
                       VPATCH_HANDLE(msgNames[showMessages]));
 
+    {
+        char buf[24];
+        boolean god = (players[consoleplayer].cheats & CF_GODMODE) != 0;
+        boolean noclip = (players[consoleplayer].cheats & CF_NOCLIP) != 0;
+
+        M_snprintf(buf, sizeof(buf), "IDDQD: %s", god ? "Yes" : "No");
+        M_WriteText(OptionsDef.x, OptionsDef.y + LINEHEIGHT * cheat_iddqd + 4, buf);
+
+        M_snprintf(buf, sizeof(buf), "IDCLIP: %s", noclip ? "Yes" : "No");
+        M_WriteText(OptionsDef.x, OptionsDef.y + LINEHEIGHT * cheat_idclip + 4, buf);
+    }
+
 #if !NO_USE_MOUSE
     M_DrawThermo(OptionsDef.x, OptionsDef.y + LINEHEIGHT * (mousesens + 1),
 		 10, mouseSensitivity);
@@ -1391,6 +1411,45 @@ void M_ChangeMessages(int choice)
     else
 	players[consoleplayer].message = DEH_String(MSGON);
 
+    message_dontfuckwithme = true;
+}
+
+
+//
+//      Toggle IDDQD / IDCLIP cheats from the menu, same as typing the
+//      cheat codes. Only valid while actually playing a level (matches
+//      the restriction the keyboard cheat codes already have), so the
+//      effective value shown always reflects the live in-game state and
+//      never persists across levels or power cycles.
+//
+static boolean M_CheatsAvailable(void)
+{
+    return !netgame && gameskill != sk_nightmare && gamestate == GS_LEVEL;
+}
+
+void M_ToggleGodMode(int choice)
+{
+    choice = 0;
+    if (!M_CheatsAvailable())
+    {
+	S_StartUnpositionedSound(sfx_oof);
+	return;
+    }
+
+    ST_ToggleGodMode();
+    message_dontfuckwithme = true;
+}
+
+void M_ToggleNoClip(int choice)
+{
+    choice = 0;
+    if (!M_CheatsAvailable())
+    {
+	S_StartUnpositionedSound(sfx_oof);
+	return;
+    }
+
+    ST_ToggleNoClip();
     message_dontfuckwithme = true;
 }
 

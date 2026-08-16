@@ -570,7 +570,13 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         PICO_DEBUG_MALLOC=1
         EMU8950_NO_RATECONV=1
 
-        PICO_CORE1_STACK_SIZE=0x4f8
+        # 0x4f8 was sized for the original ILI9341 backend's core1 workload
+        # (RAM-resident scanline generation). The matrix backend runs
+        # meaningfully more stack-hungry code on core1 instead (nested
+        # downscale loops, etc.) that never existed in that tuning, and
+        # RP2350 has far more RAM to spare than RP2040 did, so give it a
+        # much bigger margin rather than risk a silent, unfaulted overflow.
+        $<IF:$<BOOL:${RP2350_MATRIX}>,PICO_CORE1_STACK_SIZE=0xc00,PICO_CORE1_STACK_SIZE=0x4f8>
 
         NO_IERROR=1
     )
@@ -605,6 +611,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
     endif()
     # dahai
     pico_enable_stdio_uart(doom_tiny${SUFFIX} 0)
+
 
 endfunction()
 

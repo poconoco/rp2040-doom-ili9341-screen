@@ -85,6 +85,9 @@
 #if USB_SUPPORT
 #include "tusb.h"
 #endif
+#if RP2350_MATRIX
+void matrix_request_checkpoint(uint8_t n); // MATRIX_CHECKPOINT_REQUEST, see i_video.c
+#endif
 #endif
 //
 // D-DoomLoop()
@@ -184,8 +187,14 @@ void R_ExecuteSetViewSize (void);
 
 boolean D_Display (void)
 {
+#if RP2350_MATRIX
+    matrix_request_checkpoint(5); // D_Display() entered, about to call pd_begin_frame()
+#endif
 #if PICO_DOOM
     pd_begin_frame();
+#endif
+#if RP2350_MATRIX
+    matrix_request_checkpoint(6); // pd_begin_frame() returned -- this is the core0/core1 render handshake
 #endif
 
 #if !DOOM_TINY
@@ -274,7 +283,15 @@ boolean D_Display (void)
     // seen any downside to doing the drawing.
     if (gamestate == GS_LEVEL && !automapactive)
 #endif
+	{
+#if RP2350_MATRIX
+	    matrix_request_checkpoint(7); // about to call R_RenderPlayerView()
+#endif
 	    R_RenderPlayerView (&players[displayplayer]);
+#if RP2350_MATRIX
+	    matrix_request_checkpoint(8); // R_RenderPlayerView() returned
+#endif
+	}
 
 #if !DOOM_TINY
     if (gamestate == GS_LEVEL && gametic)
@@ -347,13 +364,22 @@ boolean D_Display (void)
 #endif
 
 #if PICO_DOOM
+#if RP2350_MATRIX
+    matrix_request_checkpoint(9); // about to call pd_end_frame() -- likely where core0 waits for core1_done
+#endif
     pd_end_frame(wipe);
+#if RP2350_MATRIX
+    matrix_request_checkpoint(10); // pd_end_frame() returned
+#endif
 #else
 
     // menus go directly to the screen
     M_Drawer ();          // menu is drawn even on top of everything
 #endif
     NetUpdate ();         // send out any new accumulation
+#if RP2350_MATRIX
+    matrix_request_checkpoint(11); // D_Display() about to return
+#endif
 
     return wipe;
 }
@@ -491,10 +517,17 @@ void D_RunFrame()
 
     // frame syncronous IO operations
     I_StartFrame ();
+#if RP2350_MATRIX
+#endif
 
     TryRunTics (); // will run at least one tic
+#if RP2350_MATRIX
+#endif
 
     S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
+#if RP2350_MATRIX
+    matrix_request_checkpoint(4); // S_UpdateSounds() done
+#endif
 
     // Update display, next frame, with current state if no profiling is on
     if (screenvisible && !nodrawers)
@@ -545,6 +578,8 @@ void D_DoomLoop (void)
     I_SetGrabMouseCallback(D_GrabMouseCallback);
 #endif
     I_InitGraphics();
+#if RP2350_MATRIX
+#endif
 #if USB_SUPPORT
     printf("Sleeping 2s for USB devices\n"); // TinyUSB still grinds to a halt during connect/disconnect
     absolute_time_t end_time = make_timeout_time_ms(2000);
@@ -553,13 +588,23 @@ void D_DoomLoop (void)
     } while (!time_reached(end_time));
 #endif
     EnableLoadingDisk();
+#if RP2350_MATRIX
+#endif
 
     TryRunTics();
+#if RP2350_MATRIX
+#endif
 
     V_RestoreBuffer();
+#if RP2350_MATRIX
+#endif
     R_ExecuteSetViewSize();
+#if RP2350_MATRIX
+#endif
 
     D_StartGameLoop();
+#if RP2350_MATRIX
+#endif
 
     if (testcontrols)
     {
@@ -568,6 +613,13 @@ void D_DoomLoop (void)
 
     while (1)
     {
+#if RP2350_MATRIX
+        static bool first_frame_checkpoint_sent = false;
+        if (!first_frame_checkpoint_sent) {
+            first_frame_checkpoint_sent = true;
+            matrix_request_checkpoint(3); // about to call D_RunFrame() for the first time
+        }
+#endif
         D_RunFrame();
 #if PICO_DOOM_INFO
         static uint8_t x = 0;
@@ -1578,6 +1630,8 @@ void D_DoomMain (void)
 #else
     D_AddFile("");
 #endif
+#if RP2350_MATRIX
+#endif
     int numiwadlumps = numlumps;
 
 #if !DOOM_TINY
@@ -1590,6 +1644,8 @@ void D_DoomMain (void)
     // we're playing and which version of Vanilla Doom we need to emulate.
     D_IdentifyVersion();
     InitGameVersion();
+#if RP2350_MATRIX
+#endif
 
     // Check which IWAD variant we are using.
 
@@ -2124,5 +2180,8 @@ void D_DoomMain (void)
 	    D_StartTitle ();                // start up intro loop
     }
 
+#if RP2350_MATRIX
+    matrix_request_checkpoint(1); // D_DoomMain() finished, about to call D_DoomLoop()
+#endif
     D_DoomLoop ();  // never returns
 }

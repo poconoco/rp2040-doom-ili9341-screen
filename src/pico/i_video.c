@@ -68,6 +68,10 @@
 #include "magc.h"
 static int display_dma_channel;
 
+#if RP2350_MATRIX
+#include "matrix/ws2812_led_matrix.h"
+#endif
+
 #define YELLOW_SUBMARINE 0
 #define SUPPORT_TEXT 1
 #if SUPPORT_TEXT
@@ -111,6 +115,21 @@ CU_REGISTER_DEBUG_PINS(scanline_copy)
 //CU_SELECT_DEBUG_PINS(scanline_copy)
 
 static const patch_t *stbar;
+
+// stbar used to be resolved eagerly in I_InitGraphics(), but that runs (see
+// d_main.c) long before R_Init()/R_InitData() populate whd_vpatch_numbers,
+// which resolve_vpatch_handle() depends on. On RP2040 (Cortex-M0+, no MPU)
+// that premature read just landed on harmless stray memory; on RP2350
+// (Cortex-M33, real MPU/SAU) it can hard-fault with no handler configured,
+// hanging boot silently before a single frame renders. Resolving lazily on
+// first actual use -- both call sites below run only during real frame
+// rendering, well after R_Init() -- sidesteps the ordering issue entirely
+// while returning the exact same value either way.
+static inline const patch_t *get_stbar(void) {
+    if (!stbar)
+        stbar = resolve_vpatch_handle(VPATCH_STBAR);
+    return stbar;
+}
 
 volatile uint8_t interp_in_use;
 
@@ -383,6 +402,18 @@ void I_FinishUpdate (void)
 uint8_t display_frame_index;
 uint8_t display_overlay_index;
 uint8_t display_video_type;
+#if RP2350_MATRIX
+// Bumped every time new_frame_stuff() actually consumes a newly-rendered
+// frame -- unlike display_frame_index, this changes even when the render
+// is single-buffered (VIDEO_TYPE_SINGLE, e.g. the title screen, which is
+// everything outside GS_LEVEL) and keeps redrawing into the *same* index
+// every time. Gating the matrix update on display_frame_index alone means
+// it only ever notices the very first frame ever rendered and then never
+// again outside real gameplay -- confirmed on hardware (checkpoints loop
+// forever, proving real per-frame progress, while the matrix stays frozen
+// on frame 1 forever).
+static volatile uint32_t matrix_frame_serial;
+#endif
 
 typedef void (*scanline_func)(uint32_t *dest, int scanline);
 
@@ -810,7 +841,7 @@ static inline uint draw_vpatch(uint16_t *dest, patch_t *patch, vpatchlist_t *vp,
         switch (vpatch_type(patch)) {
             case vp4_solid: {
 #if PICO_ON_DEVICE
-                if (patch == stbar) {
+                if (patch == get_stbar()) {
                     static const uint8_t *cached_data;
                     static uint32_t __scratch_x("data_cache") data_cache[41];
                     int i = 0;
@@ -966,7 +997,7 @@ void __noinline new_frame_init_overlays_palette_and_wipe() {
                 }
             }
             next_pal = -1;
-            assert(vpatch_type(stbar) == vp4_solid); // no transparent, no runs, 4 bpp
+            assert(vpatch_type(get_stbar()) == vp4_solid); // no transparent, no runs, 4 bpp
             for (int i = 0; i < NUM_SHARED_PALETTES; i++) {
                 patch_t *patch = resolve_vpatch_handle(vpatch_for_shared_palette[i]);
                 assert(vpatch_colorcount(patch) <= 16);
@@ -1015,6 +1046,9 @@ void __no_inline_not_in_flash_func(new_frame_stuff)() {
         display_video_type = next_video_type;
         display_frame_index = next_frame_index;
         display_overlay_index = next_overlay_index;
+#if RP2350_MATRIX
+        matrix_frame_serial++;
+#endif
 #if !DEMO1_ONLY
         video_scroll = next_video_scroll; // todo does this waste too much space
 #endif
@@ -1029,6 +1063,263 @@ void __no_inline_not_in_flash_func(new_frame_stuff)() {
         new_frame_init_overlays_palette_and_wipe();
     }
 }
+
+#if RP2350_MATRIX
+// Permanent safety net, not just a bring-up aid: if anything ever crashes
+// on this build (RP2350's MPU/SAU makes real hard faults far more likely
+// than they were on RP2040's fault-lenient Cortex-M0+ -- see the
+// whd_vpatch_numbers/get_stbar() story above for a real example), this
+// decodes the CPU's own faulting PC (captured by hardware on the exception
+// stack frame) into 16 two-bit color flashes (MSB first): red=00 green=01
+// blue=10 yellow=11.
+// Concatenating them gives the 32-bit address; look it up in the .elf
+// (e.g. `arm-none-eabi-addr2line -e doom_tiny_nost.elf <addr>`) to find
+// the exact crashing instruction.
+static void matrix_solid(uint8_t r, uint8_t g, uint8_t b) {
+    for (int y = 0; y < WS2812_MATRIX_HEIGHT; y++)
+        for (int x = 0; x < WS2812_MATRIX_WIDTH; x++)
+            ws2812_matrix_set_pixel(x, y, r, g, b);
+    ws2812_matrix_show();
+}
+
+// MATRIX_CHECKPOINT_REQUEST -- temporary, re-diagnosing D_DoomMain's
+// startup safely this time. Earlier checkpoints called the matrix driver
+// directly from core0 (D_DoomMain/R_Init) while core1's own loop was
+// already calling it too -- an unsynchronized race on shared driver state
+// (confirmed by inconsistent, partially-lit output across identical
+// reboots). Core1 is the *only* thing allowed to touch the matrix during
+// real operation; this just lets core0 request a flash that core1 performs
+// on its own next iteration, so there's never two callers at once.
+//
+// A single overwritable slot turned out not to be enough: core0 can race
+// through several checkpoints in the time core1 takes to display just one
+// (800ms), silently dropping all but the last -- we were seeing a random
+// sample of the real sequence, not the sequence itself. This is a small
+// non-blocking ring buffer instead, so every checkpoint core0 fires gets
+// displayed, in order, eventually. Not blocking on a full queue is
+// deliberate: making core0 wait for core1 risks deadlock if core1 is ever
+// stuck elsewhere (e.g. pd_core1_loop()'s wait for core1_wake, which only
+// core0's *own* renderer releases) -- better to drop the odd checkpoint
+// under overflow than freeze the very thing we're trying to observe.
+// Colors turned out unreliable to read back (LED brightness/auto-exposure
+// wash out subtle hue differences) -- this now shows a plain lit-pixel
+// COUNT instead, always the same color, filled row-major (so e.g. N=19
+// reads as "two full rows plus three pixels" = 16+3). Numbers are
+// unambiguous no matter how the camera/eye is adapting.
+// Master switch: the core0<->core1 render handshake is now confirmed to
+// complete every frame (checkpoints reliably reach 18 and loop). Checkpoints
+// fire every frame from here on out (D_Display/D_RunFrame/pd_core1_loop all
+// run every tic) and each display eats ~1s and the matrix hardware itself --
+// leaving them on would starve real gameplay frames of any chance to show.
+// Flip back to 1 to resume step-by-step diagnosis.
+#define MATRIX_CHECKPOINTS_ENABLED 0
+
+#define MATRIX_CHECKPOINT_QUEUE_LEN 32
+static volatile int32_t matrix_checkpoint_queue[MATRIX_CHECKPOINT_QUEUE_LEN]; // -1 = empty slot
+static volatile uint32_t matrix_checkpoint_write = 0;
+static uint32_t matrix_checkpoint_read = 0; // core1-only, not shared
+
+void matrix_request_checkpoint(uint8_t n) {
+#if !MATRIX_CHECKPOINTS_ENABLED
+    return;
+#endif
+    uint32_t next = (matrix_checkpoint_write + 1) % MATRIX_CHECKPOINT_QUEUE_LEN;
+    if (next == matrix_checkpoint_read)
+        return; // queue full, drop rather than block or overwrite
+    matrix_checkpoint_queue[matrix_checkpoint_write] = n;
+    matrix_checkpoint_write = next;
+}
+
+// Non-blocking count display: single ws2812_matrix_show() call, no sleep_ms
+// at all (unlike the flash-then-clear approach this replaced). Overwrites
+// the matrix in place -- safe to
+// call from inside core1's tightly-timed render loop without perturbing
+// pd_core1_loop()'s handshake cadence. Stays visible until the next call
+// (diagnostic or real frame) overwrites it -- if the loop hangs right after
+// one of these, whatever it last painted just stays frozen on the matrix,
+// which is exactly what we want: a freeze-frame of the last checkpoint
+// reached, with no risk of the diagnostic itself being what caused a hang.
+static void matrix_display_count_instant(int32_t n, uint8_t use_r, uint8_t use_g, uint8_t use_b) {
+    if (n > WS2812_MATRIX_WIDTH * WS2812_MATRIX_HEIGHT)
+        n = WS2812_MATRIX_WIDTH * WS2812_MATRIX_HEIGHT;
+    for (int i = 0; i < WS2812_MATRIX_WIDTH * WS2812_MATRIX_HEIGHT; i++) {
+        int x = i % WS2812_MATRIX_WIDTH, y = i / WS2812_MATRIX_WIDTH;
+        uint8_t on = (i < n) ? MATRIX_BRIGHTNESS_LIMIT : 0;
+        ws2812_matrix_set_pixel(x, y, use_r ? on : 0, use_g ? on : 0, use_b ? on : 0);
+    }
+    ws2812_matrix_show();
+}
+
+// Called only from core1's own loop. Red: core0-originated checkpoints
+// (1-11, queued via matrix_request_checkpoint()).
+static void matrix_service_checkpoint_request(void) {
+    if (matrix_checkpoint_read == matrix_checkpoint_write)
+        return; // empty
+    int32_t n = matrix_checkpoint_queue[matrix_checkpoint_read];
+    matrix_checkpoint_read = (matrix_checkpoint_read + 1) % MATRIX_CHECKPOINT_QUEUE_LEN;
+    matrix_display_count_instant(n, 1, 0, 0);
+}
+
+// For use from *inside* pd_core1_loop() (pd_render.cpp), i.e. from code that
+// already runs on core1 itself -- displays immediately, synchronously,
+// bypassing the cross-core queue entirely (no race: core1 already
+// exclusively owns the matrix driver). Blue: core1-internal checkpoints
+// (12-18, pd_core1_loop()'s own handshake stages) -- distinct from the red
+// core0 ones so we can tell which side froze. Non-blocking now (previously
+// used the ~1s flash-then-clear version, which may have been accidentally
+// masking a real hang by pacing the loop -- see conversation).
+void matrix_checkpoint_now(uint8_t n) {
+#if !MATRIX_CHECKPOINTS_ENABLED
+    return;
+#endif
+    matrix_display_count_instant(n, 0, 0, 1);
+}
+
+void __attribute__((noreturn)) hardfault_blink(uint32_t *stacked_regs) {
+    // Exception stack frame layout (pushed by hardware): r0, r1, r2, r3,
+    // r12, lr, pc, xpsr.
+    uint32_t pc = stacked_regs[6];
+    // Re-init from scratch in case whatever faulted also clobbered our
+    // driver's static state.
+    ws2812_matrix_init(MATRIX_DATA_PIN);
+    while (1) {
+        matrix_solid(0, 0, 0);
+        sleep_ms(600);
+        for (int i = 0; i < 3; i++) { // 3 white flashes = "starting PC dump"
+            matrix_solid(MATRIX_BRIGHTNESS_LIMIT, MATRIX_BRIGHTNESS_LIMIT, MATRIX_BRIGHTNESS_LIMIT);
+            sleep_ms(200);
+            matrix_solid(0, 0, 0);
+            sleep_ms(200);
+        }
+        sleep_ms(600);
+        for (int dibit = 15; dibit >= 0; dibit--) {
+            uint8_t v = (pc >> (dibit * 2)) & 0x3;
+            switch (v) {
+                case 0: matrix_solid(MATRIX_BRIGHTNESS_LIMIT, 0, 0); break; // red = 00
+                case 1: matrix_solid(0, MATRIX_BRIGHTNESS_LIMIT, 0); break; // green = 01
+                case 2: matrix_solid(0, 0, MATRIX_BRIGHTNESS_LIMIT); break; // blue = 10
+                case 3: matrix_solid(MATRIX_BRIGHTNESS_LIMIT, MATRIX_BRIGHTNESS_LIMIT, 0); break; // yellow = 11
+            }
+            sleep_ms(500);
+            matrix_solid(0, 0, 0);
+            sleep_ms(250);
+        }
+        sleep_ms(3000); // then repeat, forever
+    }
+}
+
+void __attribute__((naked)) isr_hardfault(void) {
+    __asm volatile (
+        "movs r0, #4        \n"
+        "mov r1, lr         \n"
+        "tst r0, r1         \n"
+        "beq 1f             \n"
+        "mrs r0, psp        \n"
+        "b 2f               \n"
+        "1: mrs r0, msp     \n"
+        "2: ldr r1, =hardfault_blink \n"
+        "bx r1              \n"
+    );
+}
+
+// I_Error() expands to __breakpoint() under NO_IERROR (see i_system.h) --
+// a bare BKPT instruction. With no debugger attached that typically
+// escalates to HardFault, but depending on DEMCR configuration it can
+// route to the DebugMonitor exception instead. Cover both with the same
+// handler; the exception stack frame layout is identical either way.
+void __attribute__((naked)) isr_debugmonitor(void) {
+    __asm volatile (
+        "movs r0, #4        \n"
+        "mov r1, lr         \n"
+        "tst r0, r1         \n"
+        "beq 1f             \n"
+        "mrs r0, psp        \n"
+        "b 2f               \n"
+        "1: mrs r0, msp     \n"
+        "2: ldr r1, =hardfault_blink \n"
+        "bx r1              \n"
+    );
+}
+
+// Downscales one completed view (SCREENWIDTH x MAIN_VIEWHEIGHT palette-index
+// pixels, i.e. frame_buffer[display_frame_index] -- the 3D view only, the
+// status bar isn't rendered into it) to WS2812_MATRIX_WIDTH x
+// WS2812_MATRIX_HEIGHT by block-averaging in RGB space, and pushes it to the
+// LED matrix. `palette` is the same RGB565-ish table (see
+// PICO_SCANVIDEO_PIXEL_FROM_RGB8 above) the ILI9341 backend uses per
+// scanline; we just decode it back to 8-bit-per-channel here instead.
+
+// Block-averaging many palette colors together washes everything out toward
+// mid-gray (contrast loss inherent to downsampling this hard, 8x8 from a
+// full 3D view) and, on real hardware, left no pixel ever reading as true
+// black -- everything sat at some dim-but-nonzero glow. Two passes, no
+// floating point (this project panics on any FP op, see
+// pico_set_float_implementation(... none) in CMakeLists.txt):
+//
+// 1. Black-point shift: crush anything at or below MATRIX_BLACK_SHIFT to
+//    true 0, then stretch the remaining range back out to fill 0-255 --
+//    "shift blacks to start earlier", so dim-but-not-really-dark input
+//    actually reads as off instead of a faint glow.
+// 2. The existing gamma-2-ish curve, blended toward the full curve (was
+//    50/50 with linear; cranked up further since even darker shadows were
+//    still wanted after step 1 alone).
+// A separate flat percentage reduction and a uniform 0-255->0-LIMIT scale
+// (replacing ws2812_matrix_set_pixel()'s own per-pixel peak-normalization)
+// were both tried and reverted -- with MATRIX_BRIGHTNESS_LIMIT this small,
+// either one collapsed nearly the whole frame to 0 before it could round up
+// to a visible level. Brightness tuning for now happens only via
+// MATRIX_BRIGHTNESS_LIMIT itself (see CMakeLists.txt) and set_pixel's own
+// per-pixel normalization, which is what actually produced a visible image.
+#define MATRIX_BLACK_SHIFT 30
+static inline uint8_t matrix_contrast(uint8_t v) {
+    uint8_t shifted = (v <= MATRIX_BLACK_SHIFT) ? 0 :
+            (uint8_t) (((uint16_t) (v - MATRIX_BLACK_SHIFT) * 255) / (255 - MATRIX_BLACK_SHIFT));
+    uint8_t full_curve = (uint8_t) (((uint16_t) shifted * shifted) / 255);
+    return (uint8_t) (((uint16_t) shifted + 3 * (uint16_t) full_curve) / 4) / 3;
+}
+
+static void matrix_show_frame(const uint8_t *view) {
+    enum { BLOCK_W = SCREENWIDTH / WS2812_MATRIX_WIDTH, BLOCK_H = MAIN_VIEWHEIGHT / WS2812_MATRIX_HEIGHT };
+    for (int cy = 0; cy < WS2812_MATRIX_HEIGHT; cy++) {
+        for (int cx = 0; cx < WS2812_MATRIX_WIDTH; cx++) {
+            uint32_t rsum = 0, gsum = 0, bsum = 0;
+            for (int y = 0; y < BLOCK_H; y++) {
+                const uint8_t *row = view + (cy * BLOCK_H + y) * SCREENWIDTH + cx * BLOCK_W;
+                for (int x = 0; x < BLOCK_W; x++) {
+                    uint16_t p = palette[row[x]];
+                    uint8_t r5 = (p >> PICO_SCANVIDEO_PIXEL_RSHIFT) & 0x1f;
+                    uint8_t g5 = (p >> PICO_SCANVIDEO_PIXEL_GSHIFT) & 0x1f;
+                    uint8_t b5 = (p >> PICO_SCANVIDEO_PIXEL_BSHIFT) & 0x1f;
+                    rsum += (r5 << 3) | (r5 >> 2); // 5 -> 8 bit
+                    gsum += (g5 << 3) | (g5 >> 2);
+                    bsum += (b5 << 3) | (b5 >> 2);
+                }
+            }
+            const int n = BLOCK_W * BLOCK_H;
+            uint8_t r = matrix_contrast(rsum / n);
+            uint8_t g = matrix_contrast(gsum / n);
+            uint8_t b = matrix_contrast(bsum / n);
+            // REVERTED (confirmed too dark on hardware -- with
+            // MATRIX_BRIGHTNESS_LIMIT this small, only near-white input
+            // survived the divide at all, "only a couple of red pixels, all
+            // else dark"): tried scaling 0-255 down to 0-LIMIT uniformly
+            // here instead of letting ws2812_matrix_set_pixel() do its own
+            // per-pixel peak-normalization. That approach is more "correct"
+            // (preserves relative brightness instead of boosting everything
+            // non-black up to the ceiling) but needs much more headroom in
+            // MATRIX_BRIGHTNESS_LIMIT than 2 to avoid collapsing most of the
+            // frame to 0. Passing the contrast-curve output straight through
+            // and letting set_pixel's own normalization brighten it back up
+            // is what actually produced a visible image on hardware.
+            // Mirrored left-to-right on the physical panel (confirmed on
+            // hardware) -- flip the destination column while still reading
+            // the source left-to-right.
+            ws2812_matrix_set_pixel(WS2812_MATRIX_WIDTH - 1 - cx, cy, r, g, b);
+        }
+    }
+    ws2812_matrix_show();
+}
+#endif
 
 //dahai
  // void display_set_address(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
@@ -1200,6 +1491,51 @@ static void __not_in_flash_func(free_buffer_callback)() {
 
 //static semaphore_t init_sem;
 static void core1() {
+#if RP2350_MATRIX
+    // No scanvideo/PIO-VGA/SPI machinery needed at all here: that whole
+    // apparatus exists only to feed the ILI9341 over SPI on the beam-timed
+    // schedule scanvideo provides. The matrix just needs the same
+    // frame-ready handoff new_frame_stuff() already does for that backend,
+    // polled directly instead of from a scanline IRQ.
+    sem_release(&core1_launch);
+    uint32_t last_shown_frame_serial = ~0u; // matrix_frame_serial starts at 0, so the first frame always shows
+    // ws2812_matrix_show() calls need a minimum spacing -- back-to-back
+    // calls with no gap were confirmed (empirically) to hang the PIO SM
+    // solid, likely WS2812's own inter-frame latch/reset requirement
+    // biting harder than usual in this exact setup. 100ms was confirmed
+    // to work reliably; an 8x8 ambient display doesn't need anywhere near
+    // DOOM's own frame rate anyway, so this costs nothing visually.
+    absolute_time_t next_matrix_update = get_absolute_time();
+    while (true) {
+        // Serviced first: pd_core1_loop() blocks on a semaphore core0 only
+        // releases once real rendering has begun, so a checkpoint request
+        // made during early D_DoomMain startup would never be reached if
+        // this ran after it.
+        matrix_service_checkpoint_request();
+        // With core0 now confirmed to reach checkpoint 9 (about to call
+        // pd_end_frame()) and block there waiting on core1_done -- exactly
+        // as expected while this loop was skipping pd_core1_loop() -- it's
+        // time to find out whether the real handshake actually completes.
+        pd_core1_loop();
+        new_frame_stuff();
+        // matrix_frame_serial (not display_frame_index) so single-buffered
+        // redraws-in-place (title screen etc, anything outside GS_LEVEL)
+        // still trigger an update -- see matrix_frame_serial's declaration.
+        if (matrix_frame_serial != last_shown_frame_serial && time_reached(next_matrix_update)) {
+            last_shown_frame_serial = matrix_frame_serial;
+            matrix_show_frame(frame_buffer[display_frame_index]);
+            next_matrix_update = make_timeout_time_ms(100);
+        }
+        // Neither a flat 20ms nor 150ms unconditional delay HERE (end of the
+        // outer loop, i.e. only between pd_core1_loop() calls as a whole)
+        // prevented the freeze -- confirmed on hardware, twice. Only
+        // checkpoints, which interpose pacing *between pd_core1_loop()'s
+        // own internal handshake stages*, have ever worked. Testing that
+        // shape directly now via MATRIX_HANDSHAKE_PACE() in pd_core1_loop()
+        // itself (pd_render.cpp) instead of a lump delay out here.
+        tight_loop_contents();
+    }
+#else
 #if !PICO_ON_DEVICE
     void simulate_video_pio_video_doom(const uint32_t *dma_data, uint32_t dma_data_size,
                                        uint16_t *pixel_buffer, int32_t max_pixels, int32_t expected_width, bool overlay);
@@ -1228,6 +1564,7 @@ static void core1() {
         fill_scanlines();
 #endif
     }
+#endif
 }
 
 
@@ -1494,11 +1831,29 @@ void st7789_infones_frame_timing_register_init()
 void I_InitGraphics(void)
 {
     //dahai
+#if !RP2350_MATRIX
+    // On boards that reuse PICO_DEFAULT_LED_PIN as the matrix's data-in
+    // (e.g. GPIO25 on the RP2350 matrix board), claiming it as a plain SIO
+    // output here would race the matrix driver's own gpio_set_function()
+    // for the same pin. There's no separate status LED to drive in matrix
+    // mode anyway, so skip this entirely rather than depend on ordering.
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 1);
+#endif
 
-    display_init(); 
+#if RP2350_MATRIX
+    ws2812_matrix_init(MATRIX_DATA_PIN);
+    // Direct calls are safe here (and only here): core1 doesn't exist yet,
+    // so there's no other caller of the matrix driver to race against.
+    // Once multicore_launch_core1() below runs, all further checkpoints
+    // must go through matrix_request_checkpoint() instead. The
+    // white/yellow/cyan startup blinks that used to live here and below
+    // were removed -- confirmed passing reliably, every single boot, for
+    // a long stretch of testing; no longer earning their keep (and each
+    // held the whole matrix lit for 800ms, adding to sustained LED heat).
+#else
+    display_init();
     display_clear();
 #ifdef ILI9341
     #pragma message "ILI9341 defined."
@@ -1508,9 +1863,9 @@ void I_InitGraphics(void)
     #pragma message "ST7789 defined"
     st7789_infones_frame_timing_register_init();
 #endif
+#endif
 
 
-    stbar = resolve_vpatch_handle(VPATCH_STBAR);
     sem_init(&render_frame_ready, 0, 2);
     sem_init(&display_frame_freed, 1, 2);
     sem_init(&core1_launch, 0, 1);
@@ -1518,6 +1873,10 @@ void I_InitGraphics(void)
     multicore_launch_core1(core1);
     // wait for core1 launch as it may do malloc and we have no mutex around that
     sem_acquire_blocking(&core1_launch);
+#if RP2350_MATRIX
+    // core1 is running now -- must go through the request mechanism.
+    matrix_request_checkpoint(2); // core1 launched, I_InitGraphics about to return
+#endif
 #if USE_ZONE_FOR_MALLOC
     disallow_core1_malloc = true;
 #endif

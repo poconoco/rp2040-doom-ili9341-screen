@@ -40,6 +40,9 @@
 #include "picodoom.h"
 #if PICO_BUILD
 #include "hardware/gpio.h"
+#if RP2350_MATRIX
+void matrix_request_checkpoint(uint8_t n); // MATRIX_CHECKPOINT_REQUEST, see i_video.c
+#endif
 #endif
 #endif
 #if USE_WHD
@@ -1076,6 +1079,8 @@ void R_ExecuteSetViewSize(void) {
 
 
 void R_Init(void) {
+#if RP2350_MATRIX
+#endif
     R_InitData();
     printf(".");
     R_InitPointToAngle();

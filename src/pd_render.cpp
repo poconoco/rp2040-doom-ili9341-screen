@@ -2962,28 +2962,73 @@ void pd_end_frame(int wipe_start) {
     DEBUG_PINS_CLR(start_end, 2);
 }
 
+#if RP2350_MATRIX
+extern "C" void matrix_checkpoint_now(uint8_t n); // core1-only immediate display, see i_video.c
+#endif
+
+#if RP2350_MATRIX
+// Confirmed on hardware: pacing distributed *between pd_core1_loop()'s own
+// internal handshake stages* (here) prevents the freeze-after-one-frame hang
+// that a single lump delay at the outer core1() loop boundary did not.
+// 100ms/stage (~700ms/frame) worked but felt very sluggish (demo autostart
+// especially); 10ms/stage was NOT enough and froze again; 40ms/stage played
+// (if slowly). Nudging back down toward the too-low end to find the real
+// minimum.
+#define MATRIX_HANDSHAKE_PACE() sleep_ms(24)
+#else
+#define MATRIX_HANDSHAKE_PACE()
+#endif
+
 void pd_core1_loop() {
 #if PICO_ON_DEVICE
     sem_acquire_blocking(&core1_wake);
+#if RP2350_MATRIX
+    matrix_checkpoint_now(12); // core1_wake acquired
+#endif
+    MATRIX_HANDSHAKE_PACE();
 #if USE_CORE1_FOR_FLATS
     while (!sem_acquire_timeout_ms(&core1_do_flats, 1)) {
         SafeUpdateSound();
     }
+#if RP2350_MATRIX
+    matrix_checkpoint_now(13); // core1_do_flats acquired
+#endif
+    MATRIX_HANDSHAKE_PACE();
     interp_in_use = true;
     draw_visplanes(core1_fr_list);
     interp_in_use = false;
+#if RP2350_MATRIX
+    matrix_checkpoint_now(14); // draw_visplanes() returned
+#endif
+    MATRIX_HANDSHAKE_PACE();
 #if USE_CORE1_FOR_REGULAR
     while (!sem_acquire_timeout_ms(&core1_do_regular, 1)) {
         SafeUpdateSound();
     }
+#if RP2350_MATRIX
+    matrix_checkpoint_now(15); // core1_do_regular acquired
+#endif
+    MATRIX_HANDSHAKE_PACE();
     draw_regular_columns(1);
+#if RP2350_MATRIX
+    matrix_checkpoint_now(16); // draw_regular_columns() returned
+#endif
+    MATRIX_HANDSHAKE_PACE();
 #endif
 #endif
     while (!sem_acquire_timeout_ms(&core0_done, 1)) {
         SafeUpdateSound();
     }
+#if RP2350_MATRIX
+    matrix_checkpoint_now(17); // core0_done acquired
+#endif
+    MATRIX_HANDSHAKE_PACE();
 #endif
     sem_release(&core1_done);
+#if RP2350_MATRIX
+    matrix_checkpoint_now(18); // core1_done released -- pd_core1_loop() about to return
+#endif
+    MATRIX_HANDSHAKE_PACE();
 }
 
 #if PICO_ON_DEVICE

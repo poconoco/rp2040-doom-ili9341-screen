@@ -101,6 +101,7 @@ cd ~/rp2040-doom-ili9341-screen
 cd pico/pico-sdk/tools/pioasm
 mkdir build
 cd build
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 cmake ..
 make
 ```

@@ -167,15 +167,19 @@ There are two operations:
 
 
 To enter flashing mode, hold the BOOTSEL (or just BOOT) button on your Pico and plug it into your USB port.
-Then flash the whd file we generated earlier using `picotool`:
+Then flash the whd file we generated earlier using `picotool`, using the offset that matches the `.uf2` you're about to flash — **the offset is different for the two variants, it is not one-size-fits-all**:
+
+- super-tiny (`whd_gen` run WITHOUT `-no-super-tiny`, pairs with `src/doom_tiny.uf2`): offset `0x10042000`
+- not super-tiny (`whd_gen` run WITH `-no-super-tiny`, pairs with `src/doom_tiny_nost.uf2`): offset `0x10048000`
+
 ```
 cd ~/rp2040-doom-ili9341-screen
 sudo pico/picotool/build/picotool load -v -t bin doom2.whd -o 0x10048000
 ```
 
-The `0x10048000` is the special offset, the doom code will look for resources at this offset
+(the example above uses the not-super-tiny offset, matching the `doom2.wad -no-super-tiny` example earlier in this doc; if you generated a super-tiny whd instead, use `-o 0x10042000`)
 
-Now, when pico is still connected and mounted as a flash drive, use your file manager to copy the `src/doom_tiny_nost.uf2` or `src/doom_tiny.uf2` (depending on if you are using super-tiny whd or not, see above) file to the root of that drive.
+Now, when pico is still connected and mounted as a flash drive, use your file manager to copy the `src/doom_tiny_nost.uf2` or `src/doom_tiny.uf2` (depending on if you are using super-tiny whd or not, see above) file to the root of that drive. Make sure you copy the `.uf2` that matches the offset you just flashed the whd to — mismatching them will make the game fail to find its resources, or in the worse case silently overlap the flashed data with the tail end of the code.
 
 When copying finishes, Pico should reboot automatically. And if everything was wired, built and flashed correctly, DOOM should run.
 

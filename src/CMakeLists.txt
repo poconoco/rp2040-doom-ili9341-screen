@@ -469,6 +469,26 @@ if (TARGET chocolate-doom)
     )
 endif()
 
+# Fails the build if TARGET's compiled .bin has grown large enough to overlap
+# WAD_ADDR, the flash offset where the WHD resource pack is separately loaded
+# via `picotool load ... -o <WAD_ADDR>` (see README.md). TARGET must already
+# have had pico_add_extra_outputs() applied (e.g. via add_doom_tiny() below),
+# since this relies on the .bin it produces.
+function(add_wad_flash_budget_check TARGET WAD_ADDR)
+    pico_get_runtime_output_directory(${TARGET} output_path)
+    pico_get_output_name(${TARGET} output_name)
+    add_custom_command(TARGET ${TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                -DBIN_FILE=${output_path}${output_name}.bin
+                -DWAD_ADDR=${WAD_ADDR}
+                -DFLASH_BASE=0x10000000
+                -DTARGET_NAME=${TARGET}
+                -P ${CMAKE_SOURCE_DIR}/cmake/check_flash_budget.cmake
+            VERBATIM
+            COMMENT "Checking ${TARGET} fits before its TINY_WAD_ADDR (${WAD_ADDR})"
+            )
+endfunction()
+
 function(add_doom_tiny SUFFIX RENDER_LIB)
     add_executable(doom_tiny${SUFFIX})
     target_link_libraries(doom_tiny${SUFFIX} PRIVATE game)
@@ -654,12 +674,18 @@ if (PICO_SDK)
             TINY_WAD_ADDR=0x10042000
     )
     target_link_libraries(doom_tiny PRIVATE tiny_settings)
+    if (PICO_ON_DEVICE)
+        add_wad_flash_budget_check(doom_tiny 0x10042000)
+    endif()
     add_doom_tiny(_nost render_newhope)
 
     target_compile_definitions(doom_tiny_nost PRIVATE
             # NO_USE_FINALE_CAST=1 # note this is only used by doom II but doesnt take that much more space
             TINY_WAD_ADDR=0x10048000
             )
+    if (PICO_ON_DEVICE)
+        add_wad_flash_budget_check(doom_tiny_nost 0x10048000)
+    endif()
     # if (PICO_ON_DEVICE)
     #    suppress_tinyusb_warnings()
     #    add_doom_tiny(_usb render_newhope)

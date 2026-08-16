@@ -1270,12 +1270,12 @@ void __attribute__((naked)) isr_debugmonitor(void) {
 // to a visible level. Brightness tuning for now happens only via
 // MATRIX_BRIGHTNESS_LIMIT itself (see CMakeLists.txt) and set_pixel's own
 // per-pixel normalization, which is what actually produced a visible image.
-#define MATRIX_BLACK_SHIFT 56
+#define MATRIX_BLACK_SHIFT 30
 static inline uint8_t matrix_contrast(uint8_t v) {
     uint8_t shifted = (v <= MATRIX_BLACK_SHIFT) ? 0 :
             (uint8_t) (((uint16_t) (v - MATRIX_BLACK_SHIFT) * 255) / (255 - MATRIX_BLACK_SHIFT));
     uint8_t full_curve = (uint8_t) (((uint16_t) shifted * shifted) / 255);
-    return (uint8_t) (((uint16_t) shifted + 3 * (uint16_t) full_curve) / 4);
+    return (uint8_t) (((uint16_t) shifted + 3 * (uint16_t) full_curve) / 4) / 3;
 }
 
 static void matrix_show_frame(const uint8_t *view) {

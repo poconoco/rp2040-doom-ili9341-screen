@@ -27,6 +27,7 @@
 #else
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+#include "hardware/clocks.h"
 #include "pico/sem.h"
 #include "pico/multicore.h"
 #if PICO_ON_DEVICE

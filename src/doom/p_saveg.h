@@ -46,7 +46,7 @@ typedef struct {
 
 void P_SaveGameGetExistingFlashSlotAddresses(flash_slot_info_t *slots, int count);
 // can pass null to clear a slot
-boolean P_SaveGameWriteFlashSlot(int slot, const uint8_t *buffer, uint size, uint8_t *buffer4k);
+boolean P_SaveGameWriteFlashSlot(int slot, const uint8_t *buffer, unsigned int size, uint8_t *buffer4k);
 #endif
 char *P_SaveGameFile(int slot);
 

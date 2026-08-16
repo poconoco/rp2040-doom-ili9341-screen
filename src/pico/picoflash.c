@@ -9,6 +9,7 @@
 #include "picoflash.h"
 #include "pico/bootrom.h"
 #include "pico/multicore.h"
+#include "hardware/watchdog.h"
 
 #define FLASH_BLOCK_ERASE_CMD 0x20
 

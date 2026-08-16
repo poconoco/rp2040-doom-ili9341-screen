@@ -102,8 +102,8 @@ cd pico/pico-sdk/tools/pioasm
 mkdir build
 cd build
 export CMAKE_POLICY_VERSION_MINIMUM=3.5
-cmake ..
-make
+cmake -DPIOASM_VERSION_STRING=2.3.0 ..
+make -j12
 ```
 
 Build picotool

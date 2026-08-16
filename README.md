@@ -1,5 +1,5 @@
 
-# RP2040 DOOM (ILI9341 Screen Edition)
+# RP2040/RP2350 DOOM (ILI9341 Screen Edition)
 
 **This is a derived work, see original https://github.com/kilograham/rp2040-doom/ and https://github.com/pondahai/rp2040-doom-ili9341 repos it was combined from**
 
@@ -15,6 +15,7 @@ Hardware modules I used to run this configuration of DOOM2:
 
 - RP2040-Plus (the RP2040 board with Type-C connector and 16MB of flash storage).
   This code also should be compatible with standard Pi Pico with 2MB of storage, but you'll have to use the super-tiny mode (see below), and you will be limited to small shareware doom wads. Full DOOM2 requires ~8MB of space, so RP2040-Plus is a perfect fit.
+  (Also supports RP2350 boards, needs `pico2` to be set during build, see below)
 - 320x240 screen with ILI9341 controller. Other controllers can be used, but it would need digging into the source and updating configuration. This repo is preconfigured for ILI9341
 - Digital sound module based on MAX98357A. Should also be compatible with PCM5102A
 - 8 pushbuttons
@@ -146,6 +147,8 @@ export CMAKE_POLICY_VERSION_MINIMUM=3.5
 cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DPICO_BOARD=pico -DPICO_SDK_PATH=../pico/pico-sdk -DPICO_EXTRAS_PATH=../pico/pico-extras ..
 make -j12
 ```
+
+It also can be built for Pico2 (RP2350) controllers, just use `pico2` for `-DPICO_BOARD` in the above command.
 
 Check firmware build results (while still in `build_pico` dir)
 ```

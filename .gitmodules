@@ -4,6 +4,7 @@
 [submodule "pico/pico-sdk"]
 	path = pico/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git
+	ignore = untracked
 [submodule "pico/picotool"]
 	path = pico/picotool
 	url = https://github.com/raspberrypi/picotool.git

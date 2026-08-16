@@ -184,3 +184,16 @@ When copying finishes, Pico should reboot automatically. And if everything was w
 3D models for the case shown above can be downloaded from printables: https://www.printables.com/model/1756912-pi-pico-doom-gadget
 
 There is a video about working on this project (in Ukrainian): https://youtu.be/zW1zL9UEo74
+
+# Bonus
+
+This repo also has a silly support to run DOOM on the Waveshare RP2350-Matrix module with 8x8 RGB LED matrix. It looks horrible. But it dooms. To do this, use `pico2` for `PICO_BOARD` and additional macro - `RP2350_MATRIX`. Like so:
+
+```
+cd ~/rp2040-doom-ili9341-screen
+mkdir build_pico
+cd build_pico
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DPICO_BOARD=pico2 -DRP2350_MATRIX=1 -DPICO_SDK_PATH=../pico/pico-sdk -DPICO_EXTRAS_PATH=../pico/pico-extras ..
+make -j12
+```

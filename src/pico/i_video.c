@@ -1184,10 +1184,17 @@ void /*__scratch_x("scanlines")*/ fill_scanlines() {
 #define LOW_PRIO_IRQ 31
 #include "hardware/irq.h"
 
+#if PICO_RP2040
+#define NVIC_ISPR_OFFSET M0PLUS_NVIC_ISPR_OFFSET
+#else
+// LOW_PRIO_IRQ is < 32, so it still lands in the first (of several, on Cortex-M33) ISPR word
+#define NVIC_ISPR_OFFSET M33_NVIC_ISPR0_OFFSET
+#endif
+
 static void __not_in_flash_func(free_buffer_callback)() {
 //    irq_set_pending(LOW_PRIO_IRQ);
     // ^ is in flash by default
-    *((io_rw_32 *) (PPB_BASE + M0PLUS_NVIC_ISPR_OFFSET)) = 1u << LOW_PRIO_IRQ;
+    *((io_rw_32 *) (PPB_BASE + NVIC_ISPR_OFFSET)) = 1u << LOW_PRIO_IRQ;
 }
 #endif
 

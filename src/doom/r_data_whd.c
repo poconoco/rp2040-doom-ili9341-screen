@@ -26,6 +26,10 @@
 #include "i_system.h"
 #include "z_zone.h"
 
+#if RP2350_MATRIX
+void matrix_request_checkpoint(uint8_t n); // MATRIX_CHECKPOINT_REQUEST, see i_video.c
+#endif
+
 
 #include "w_wad.h"
 
@@ -283,12 +287,20 @@ void R_InitData (void)
 {
 #
     R_InitTextures ();
+#if RP2350_MATRIX
+#endif
     printf (".");
     R_InitFlats ();
+#if RP2350_MATRIX
+#endif
     printf (".");
     R_InitSpriteLumps ();
+#if RP2350_MATRIX
+#endif
     printf (".");
     R_InitColormaps ();
+#if RP2350_MATRIX
+#endif
 }
 
 

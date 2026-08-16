@@ -129,4 +129,32 @@ elseif(LCD_CONTROLLER STREQUAL "ST7789")
         )
 endif()
 
+# RP2350_MATRIX: swap the ILI9341 LCD for an 8x8 WS2812 RGB LED matrix
+# (RP2350 only -- the matrix driver lives entirely in src/pico/matrix, see
+# also the RP2350_MATRIX branches in i_video.c). Everything above this point
+# (LCD_CONTROLLER, its pins, hardware_spi) stays configured either way; it's
+# just unused in matrix mode.
+option(RP2350_MATRIX "Output to an 8x8 WS2812 RGB LED matrix instead of the LCD (RP2350 only)" OFF)
+if (RP2350_MATRIX)
+    set(MATRIX_DATA_PIN "16" CACHE STRING "GPIO pin driving the WS2812 matrix's data line")
+    set(MATRIX_BRIGHTNESS_LIMIT "2" CACHE STRING "Per-channel 0-255 cap applied to every LED (see ws2812_led_matrix.h for why this defaults low)")
+    message("Video output         : 8x8 WS2812 RGB LED matrix (RP2350_MATRIX)")
+    message("Matrix data pin      : ${MATRIX_DATA_PIN}")
+    message("Matrix brightness cap: ${MATRIX_BRIGHTNESS_LIMIT}")
+
+    target_sources(common_pico INTERFACE
+            ${CMAKE_CURRENT_LIST_DIR}/matrix/ws2812_led_matrix.c
+            )
+    pico_generate_pio_header(common_pico ${CMAKE_CURRENT_LIST_DIR}/matrix/ws2812.pio)
+    target_link_libraries(common_pico INTERFACE hardware_pio)
+    target_include_directories(common_pico INTERFACE ${CMAKE_CURRENT_LIST_DIR}/matrix)
+    target_compile_definitions(common_pico INTERFACE
+            RP2350_MATRIX=1
+            MATRIX_DATA_PIN=${MATRIX_DATA_PIN}
+            MATRIX_BRIGHTNESS_LIMIT=${MATRIX_BRIGHTNESS_LIMIT}
+            )
+else()
+    target_compile_definitions(common_pico INTERFACE RP2350_MATRIX=0)
+endif()
+
 

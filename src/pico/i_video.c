@@ -1299,27 +1299,49 @@ void __attribute__((naked)) isr_debugmonitor(void) {
 //    true 0, then stretch the remaining range back out to fill 0-255 --
 //    "shift blacks to start earlier", so dim-but-not-really-dark input
 //    actually reads as off instead of a faint glow. Confirmed necessary on
-//    real hardware: without it, no pixel ever reads as true black.
-// 5. The gamma-ish contrast curve after that black-point shift blends most
-//    of its weight (MATRIX_CONTRAST_CURVE_NUM/DEN below) onto the
-//    compressive full_curve rather than the plain linear value -- a 50/50
-//    blend read as washed-out/flat once real brightness steps were
-//    available to show midtones honestly with (see 1 above): everything
-//    reads as *some* shade of gray, but nothing reads as properly black or
-//    properly bright, which looks foggy rather than punchy. This was tuned
-//    all the way down to 50/50 at one point specifically to stop navy blues
-//    (Doom's palette is warm-biased; its blues are all fairly dim, never
-//    bright/saturated) from crushing to 0 -- but that crushing was really a
-//    symptom of MATRIX_BRIGHTNESS_LIMIT being too small to represent a dim
-//    color at all (see 1 above), not of the curve being too strong. With
-//    real headroom now, a strong curve and visible dim colors aren't
-//    actually in tension: e.g. at MATRIX_BRIGHTNESS_LIMIT==16, a typical
-//    navy-blue input still lands around raw level 5/16 even at NUM/DEN==3/4.
-#define MATRIX_CONTRAST_CURVE_NUM 3
-#define MATRIX_CONTRAST_CURVE_DEN 4
-// Also raised alongside the curve above: crush a bit more of the low end to
-// true black instead of leaving it as a dim, contrast-sapping floor.
-#define MATRIX_BLACK_SHIFT 40
+//    real hardware: without it, no pixel ever reads as true black. Kept
+//    deliberately low, though -- this is a hard cliff (everything at or
+//    below it is forced to exactly 0), and pushing it up to add contrast
+//    was crushing too much legitimately-dim (not actually black) content
+//    with it. The curve below has its own, much gentler shadow rolloff
+//    (small inputs curve toward 0 on their own, being squared) -- that's
+//    the right tool for "make shadows read darker", this constant is only
+//    for "make true black actually black".
+#define MATRIX_BLACK_SHIFT 15
+// 5. The gamma-ish contrast curve after that black-point shift used to be a
+//    blend between the plain (linear) black-point-stretched value and a
+//    compressive "gamma 2" curve (shifted squared) -- a 50/50 blend read as
+//    washed-out/flat once real brightness steps were available to show
+//    midtones honestly (see 1 above): everything reads as *some* shade of
+//    gray, but nothing reads as properly black or properly bright, which
+//    looks foggy rather than punchy. That blend was pushed all the way to
+//    100% curve / 0% linear for more contrast, which is that formula's
+//    ceiling -- no linear component left to trade away for more. Going
+//    further meant steepening the curve itself instead: MATRIX_CONTRAST_
+//    GAMMA below is the exponent (3 = cube = "gamma 3", steeper than the
+//    old fixed square), applied via repeated integer multiplication (no
+//    powf(), see the no-floating-point note above). Note this and
+//    MATRIX_BLACK_SHIFT pull in the same direction if both pushed up at
+//    once (both crush the low end) -- keep black-shift low as this goes
+//    up, or dim content (Doom's palette is warm-biased; navy blues in
+//    particular are never bright/saturated to begin with) crushes away
+//    entirely rather than just reading darker.
+#define MATRIX_CONTRAST_GAMMA 3
+// 6. A brightness boost after the curve above -- multiply its output by
+//    MATRIX_BRIGHTNESS_BOOST_NUM/DEN, clamped back to 255 -- pulls shadow
+//    detail back up out of black without giving back any of the contrast
+//    curve just bought: this is a different knob from both 4 and 5 above.
+//    Lowering MATRIX_BLACK_SHIFT (4) only helps values right at the literal
+//    cutoff; softening MATRIX_CONTRAST_GAMMA (5) lightens shadows but flattens
+//    the whole curve back toward linear/washed-out. A post-curve gain instead
+//    leaves true black (curve output already 0) alone and the curve's shape
+//    everywhere else alone, and just scales up the already-nonzero-but-faint
+//    low end so more of it survives final rounding to a nonzero raw LED
+//    level. The trade-off: brights now clamp to full brightness earlier
+//    (anything the curve already put above roughly 255/NUM*DEN saturates),
+//    i.e. less highlight headroom in exchange for more shadow detail.
+#define MATRIX_BRIGHTNESS_BOOST_NUM 2
+#define MATRIX_BRIGHTNESS_BOOST_DEN 1
 
 // No floating point (see above), so this is the classic bit-by-bit integer
 // square root: https://en.wikipedia.org/wiki/Integer_square_root.
@@ -1342,10 +1364,19 @@ static inline uint32_t matrix_isqrt(uint32_t v) {
 static inline uint8_t matrix_contrast(uint8_t v) {
     uint8_t shifted = (v <= MATRIX_BLACK_SHIFT) ? 0 :
             (uint8_t) (((uint16_t) (v - MATRIX_BLACK_SHIFT) * 255) / (255 - MATRIX_BLACK_SHIFT));
-    uint8_t full_curve = (uint8_t) (((uint16_t) shifted * shifted) / 255);
-    uint16_t blended = (uint16_t) shifted * (MATRIX_CONTRAST_CURVE_DEN - MATRIX_CONTRAST_CURVE_NUM)
-                      + (uint16_t) full_curve * MATRIX_CONTRAST_CURVE_NUM;
-    return (uint8_t) (blended / MATRIX_CONTRAST_CURVE_DEN);
+    // shifted^MATRIX_CONTRAST_GAMMA / 255^(MATRIX_CONTRAST_GAMMA - 1), via
+    // repeated integer multiplication (no powf(), no floating point -- see
+    // above). Safe in uint32_t through gamma==4 (255^4 fits); pushing the
+    // exponent past that needs a wider accumulator too.
+    uint32_t numerator = shifted, denominator = 1;
+    for (int i = 1; i < MATRIX_CONTRAST_GAMMA; i++) {
+        numerator *= shifted;
+        denominator *= 255;
+    }
+    uint8_t curved = (uint8_t) (numerator / denominator);
+    // Brightness boost, clamped -- see point 6 above.
+    uint32_t boosted = (uint32_t) curved * MATRIX_BRIGHTNESS_BOOST_NUM / MATRIX_BRIGHTNESS_BOOST_DEN;
+    return (uint8_t) (boosted > 255 ? 255 : boosted);
 }
 
 static void matrix_show_frame(const uint8_t *view) {

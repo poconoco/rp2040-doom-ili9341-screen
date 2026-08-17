@@ -25,8 +25,15 @@
 // at full white draw around 3.8A, far more than USB or most 5V supplies can
 // give this board -- keep this low unless the matrix has its own injected
 // power. 0-255, defaults to a conservative fraction of full brightness.
+// Also, with no dithering, this doubles as the number of distinct
+// brightness steps available per channel (steps = this + 1) -- e.g. 2 gives
+// only 3 steps (27 total colors) and reads as on/off, no real midtones.
+// Raise it for smoother-looking color/brightness gradients; the actual
+// active value normally comes from the MATRIX_BRIGHTNESS_LIMIT CMake cache
+// variable (src/pico/CMakeLists.txt) when RP2350_MATRIX is on, not this
+// fallback.
 #ifndef MATRIX_BRIGHTNESS_LIMIT
-#define MATRIX_BRIGHTNESS_LIMIT 24
+#define MATRIX_BRIGHTNESS_LIMIT 16
 #endif
 
 // Claims a PIO state machine and configures it to drive the matrix's data
@@ -35,6 +42,10 @@ void ws2812_matrix_init(uint8_t pin);
 
 // Sets one pixel in the not-yet-sent frame. (0,0) is the top-left of the
 // matrix when its data-in connector faces up. Out-of-range x/y are ignored.
+// r/g/b are plain 0-255 color, same range regardless of
+// MATRIX_BRIGHTNESS_LIMIT -- scaling down to the actual brightness budget
+// (with dithering, since that budget is tiny) happens inside this call.
+// Don't pre-scale by MATRIX_BRIGHTNESS_LIMIT yourself before calling this.
 void ws2812_matrix_set_pixel(uint8_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b);
 
 void ws2812_matrix_clear(void);

@@ -63,30 +63,34 @@ static inline unsigned index_for(uint8_t x, uint8_t y) {
     return (unsigned) WS2812_MATRIX_WIDTH * x + y;
 }
 
+// Scales an 8-bit channel value down to 0..limit, rounding to the nearest
+// step rather than truncating. The WS2812 driver itself is a real 8-bit PWM
+// per channel -- raw values in that 0..limit range are themselves genuine
+// partial brightness, not just "off" vs "on" -- so there's nothing to fake
+// here: the whole 0-255 input range just needs to land on the nearest of
+// the limit+1 physically-representable steps as evenly as possible.
+// (Ordered dithering was tried here to manufacture *more* apparent steps by
+// varying rounding per LED position, but on an 8x8 panel where every LED is
+// already a distinct part of the image -- not a uniform area -- that just
+// added a fixed speckle pattern uncorrelated with the actual image, which
+// looked like noise rather than smoother gradients. Reverted.)
+static inline uint8_t scale_channel(uint8_t v, uint8_t limit) {
+    return (uint8_t) (((uint16_t) v * limit + 127) / 255);
+}
+
 void ws2812_matrix_set_pixel(uint8_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b) {
     if (x >= WS2812_MATRIX_WIDTH || y >= WS2812_MATRIX_HEIGHT)
         return;
-    // Scale the whole triplet down together (preserving hue/ratio) rather
-    // than clamping each channel independently -- independent clamping
-    // means any color where two or more channels exceed the limit collapses
-    // toward gray/white once every channel hits the same ceiling, losing
-    // all color information. Every diagnostic color used elsewhere in this
-    // file is pure/saturated (only 1-2 channels nonzero) so this never
-    // showed up until real, mixed-channel DOOM content started flowing
-    // through matrix_show_frame() and came out uniformly white.
-    uint8_t max_c = r;
-    if (g > max_c) max_c = g;
-    if (b > max_c) max_c = b;
+    // Scaling every channel by the same fixed ratio (limit/255) rather than
+    // each pixel's own peak channel keeps hue *and* relative brightness
+    // across pixels intact -- the previous per-pixel-peak scaling preserved
+    // hue too, but at the cost of normalizing every non-black pixel's peak
+    // channel to the same value, throwing away brightness information (see
+    // the long comment above matrix_show_frame() in i_video.c).
     ws2812_rgb_t *led = &leds[index_for(x, y)];
-    if (max_c <= MATRIX_BRIGHTNESS_LIMIT || max_c == 0) {
-        led->r = r;
-        led->g = g;
-        led->b = b;
-    } else {
-        led->r = (uint8_t) ((unsigned) r * MATRIX_BRIGHTNESS_LIMIT / max_c);
-        led->g = (uint8_t) ((unsigned) g * MATRIX_BRIGHTNESS_LIMIT / max_c);
-        led->b = (uint8_t) ((unsigned) b * MATRIX_BRIGHTNESS_LIMIT / max_c);
-    }
+    led->r = scale_channel(r, MATRIX_BRIGHTNESS_LIMIT);
+    led->g = scale_channel(g, MATRIX_BRIGHTNESS_LIMIT);
+    led->b = scale_channel(b, MATRIX_BRIGHTNESS_LIMIT);
 }
 
 void ws2812_matrix_clear(void) {

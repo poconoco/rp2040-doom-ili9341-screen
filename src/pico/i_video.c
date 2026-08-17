@@ -1144,7 +1144,11 @@ static void matrix_display_count_instant(int32_t n, uint8_t use_r, uint8_t use_g
         n = WS2812_MATRIX_WIDTH * WS2812_MATRIX_HEIGHT;
     for (int i = 0; i < WS2812_MATRIX_WIDTH * WS2812_MATRIX_HEIGHT; i++) {
         int x = i % WS2812_MATRIX_WIDTH, y = i / WS2812_MATRIX_WIDTH;
-        uint8_t on = (i < n) ? MATRIX_BRIGHTNESS_LIMIT : 0;
+        // 255, not MATRIX_BRIGHTNESS_LIMIT: ws2812_matrix_set_pixel() now
+        // always takes plain 0-255 color and does its own brightness-budget
+        // scaling internally (see its comment) -- passing the already-tiny
+        // limit value here would get scaled down *again*.
+        uint8_t on = (i < n) ? 255 : 0;
         ws2812_matrix_set_pixel(x, y, use_r ? on : 0, use_g ? on : 0, use_b ? on : 0);
     }
     ws2812_matrix_show();
@@ -1182,11 +1186,16 @@ void __attribute__((noreturn)) hardfault_blink(uint32_t *stacked_regs) {
     // Re-init from scratch in case whatever faulted also clobbered our
     // driver's static state.
     ws2812_matrix_init(MATRIX_DATA_PIN);
+    // 255, not MATRIX_BRIGHTNESS_LIMIT, throughout below: matrix_solid() ->
+    // ws2812_matrix_set_pixel() now always takes plain 0-255 color and does
+    // its own brightness-budget scaling internally (see its comment) --
+    // passing the already-tiny limit value here would get scaled down
+    // *again*, on top of the one MATRIX_BRIGHTNESS_LIMIT already applies.
     while (1) {
         matrix_solid(0, 0, 0);
         sleep_ms(600);
         for (int i = 0; i < 3; i++) { // 3 white flashes = "starting PC dump"
-            matrix_solid(MATRIX_BRIGHTNESS_LIMIT, MATRIX_BRIGHTNESS_LIMIT, MATRIX_BRIGHTNESS_LIMIT);
+            matrix_solid(255, 255, 255);
             sleep_ms(200);
             matrix_solid(0, 0, 0);
             sleep_ms(200);
@@ -1195,10 +1204,10 @@ void __attribute__((noreturn)) hardfault_blink(uint32_t *stacked_regs) {
         for (int dibit = 15; dibit >= 0; dibit--) {
             uint8_t v = (pc >> (dibit * 2)) & 0x3;
             switch (v) {
-                case 0: matrix_solid(MATRIX_BRIGHTNESS_LIMIT, 0, 0); break; // red = 00
-                case 1: matrix_solid(0, MATRIX_BRIGHTNESS_LIMIT, 0); break; // green = 01
-                case 2: matrix_solid(0, 0, MATRIX_BRIGHTNESS_LIMIT); break; // blue = 10
-                case 3: matrix_solid(MATRIX_BRIGHTNESS_LIMIT, MATRIX_BRIGHTNESS_LIMIT, 0); break; // yellow = 11
+                case 0: matrix_solid(255, 0, 0); break; // red = 00
+                case 1: matrix_solid(0, 255, 0); break; // green = 01
+                case 2: matrix_solid(0, 0, 255); break; // blue = 10
+                case 3: matrix_solid(255, 255, 0); break; // yellow = 11
             }
             sleep_ms(500);
             matrix_solid(0, 0, 0);
@@ -1244,45 +1253,110 @@ void __attribute__((naked)) isr_debugmonitor(void) {
 // Downscales one completed view (SCREENWIDTH x MAIN_VIEWHEIGHT palette-index
 // pixels, i.e. frame_buffer[display_frame_index] -- the 3D view only, the
 // status bar isn't rendered into it) to WS2812_MATRIX_WIDTH x
-// WS2812_MATRIX_HEIGHT by block-averaging in RGB space, and pushes it to the
-// LED matrix. `palette` is the same RGB565-ish table (see
-// PICO_SCANVIDEO_PIXEL_FROM_RGB8 above) the ILI9341 backend uses per
-// scanline; we just decode it back to 8-bit-per-channel here instead.
+// WS2812_MATRIX_HEIGHT by block-averaging, and pushes it to the LED matrix.
+// `palette` is the same RGB565-ish table (see PICO_SCANVIDEO_PIXEL_FROM_RGB8
+// above) the ILI9341 backend uses per scanline; we just decode it back to
+// 8-bit-per-channel here instead. BLOCK_W/BLOCK_H (40x21) divide SCREENWIDTH
+// and MAIN_VIEWHEIGHT exactly, so every source pixel is covered by exactly
+// one block -- no dropped edge rows/columns and no overlap.
 
-// Block-averaging many palette colors together washes everything out toward
-// mid-gray (contrast loss inherent to downsampling this hard, 8x8 from a
-// full 3D view) and, on real hardware, left no pixel ever reading as true
-// black -- everything sat at some dim-but-nonzero glow. Two passes, no
-// floating point (this project panics on any FP op, see
-// pico_set_float_implementation(... none) in CMakeLists.txt):
+// Getting from that raw block average to something that reads as real
+// midtones on the physical LEDs (instead of "either lit at a fixed
+// brightness, or dark, no gradient, basic colors only") needs care in a few
+// different places, no floating point anywhere (this project panics on any
+// FP op, see pico_set_float_implementation(... none) in CMakeLists.txt):
 //
-// 1. Black-point shift: crush anything at or below MATRIX_BLACK_SHIFT to
+// 1. MATRIX_BRIGHTNESS_LIMIT (see CMakeLists.txt) is the number of real,
+//    physically-distinct PWM steps available per channel, minus one -- there
+//    is no dithering (tried and reverted: on an 8x8 panel where every LED is
+//    a genuinely different part of the image rather than a uniform area, it
+//    just reads as speckle noise, not smoother gradient). At the old
+//    default of 2 that's 3 raw levels = 27 total colors, a hard ceiling no
+//    amount of downstream math can get past -- that alone is enough to look
+//    like flat on/off color blocks. Fixing the pipeline below only pays off
+//    once this is raised enough to have real steps to land on.
+// 2. Every stage below accumulates at much higher precision than the 8-bit
+//    value it represents, and only rounds down once, at the very end
+//    (scale_channel() in ws2812_led_matrix.c) -- rounding to uint8_t after
+//    every intermediate step, then feeding that rounded value into the next
+//    step, compounds truncation error across every one of those steps, and
+//    at a brightness range this narrow that compounded error is a big
+//    fraction of the whole usable range. Concretely: the block average below
+//    accumulates a sum of *squares* (32-bit) across all ~800 texels in a
+//    block and only takes the single integer square root of the mean at the
+//    very end (see matrix_isqrt()), rather than rounding each texel to
+//    linear light individually before summing.
+// 3. That block average is a root-mean-square, not a plain arithmetic mean,
+//    because it has to approximate averaging in linear light rather than in
+//    the palette's display-encoded (gamma-ish) RGB. A block straddling e.g.
+//    a bright muzzle flash and a dark corridor wall, averaged the naive way
+//    (sum the encoded bytes, divide), reads noticeably darker than the block
+//    actually looks -- a plain mean of encoded values under-counts
+//    highlights. RMS naturally weights the brighter texels more, which is a
+//    reasonable cheap stand-in for "convert to linear, average, convert
+//    back" without needing an actual sRGB table.
+// 4. Black-point shift: crush anything at or below MATRIX_BLACK_SHIFT to
 //    true 0, then stretch the remaining range back out to fill 0-255 --
 //    "shift blacks to start earlier", so dim-but-not-really-dark input
-//    actually reads as off instead of a faint glow.
-// 2. The existing gamma-2-ish curve, blended toward the full curve (was
-//    50/50 with linear; cranked up further since even darker shadows were
-//    still wanted after step 1 alone).
-// A separate flat percentage reduction and a uniform 0-255->0-LIMIT scale
-// (replacing ws2812_matrix_set_pixel()'s own per-pixel peak-normalization)
-// were both tried and reverted -- with MATRIX_BRIGHTNESS_LIMIT this small,
-// either one collapsed nearly the whole frame to 0 before it could round up
-// to a visible level. Brightness tuning for now happens only via
-// MATRIX_BRIGHTNESS_LIMIT itself (see CMakeLists.txt) and set_pixel's own
-// per-pixel normalization, which is what actually produced a visible image.
-#define MATRIX_BLACK_SHIFT 30
+//    actually reads as off instead of a faint glow. Confirmed necessary on
+//    real hardware: without it, no pixel ever reads as true black.
+// 5. The gamma-ish contrast curve after that black-point shift blends most
+//    of its weight (MATRIX_CONTRAST_CURVE_NUM/DEN below) onto the
+//    compressive full_curve rather than the plain linear value -- a 50/50
+//    blend read as washed-out/flat once real brightness steps were
+//    available to show midtones honestly with (see 1 above): everything
+//    reads as *some* shade of gray, but nothing reads as properly black or
+//    properly bright, which looks foggy rather than punchy. This was tuned
+//    all the way down to 50/50 at one point specifically to stop navy blues
+//    (Doom's palette is warm-biased; its blues are all fairly dim, never
+//    bright/saturated) from crushing to 0 -- but that crushing was really a
+//    symptom of MATRIX_BRIGHTNESS_LIMIT being too small to represent a dim
+//    color at all (see 1 above), not of the curve being too strong. With
+//    real headroom now, a strong curve and visible dim colors aren't
+//    actually in tension: e.g. at MATRIX_BRIGHTNESS_LIMIT==16, a typical
+//    navy-blue input still lands around raw level 5/16 even at NUM/DEN==3/4.
+#define MATRIX_CONTRAST_CURVE_NUM 3
+#define MATRIX_CONTRAST_CURVE_DEN 4
+// Also raised alongside the curve above: crush a bit more of the low end to
+// true black instead of leaving it as a dim, contrast-sapping floor.
+#define MATRIX_BLACK_SHIFT 40
+
+// No floating point (see above), so this is the classic bit-by-bit integer
+// square root: https://en.wikipedia.org/wiki/Integer_square_root.
+static inline uint32_t matrix_isqrt(uint32_t v) {
+    uint32_t res = 0;
+    uint32_t bit = 1u << 30; // highest power of 4 that fits a uint32_t
+    while (bit > v) bit >>= 2;
+    while (bit) {
+        if (v >= res + bit) {
+            v -= res + bit;
+            res = (res >> 1) + bit;
+        } else {
+            res >>= 1;
+        }
+        bit >>= 2;
+    }
+    return res;
+}
+
 static inline uint8_t matrix_contrast(uint8_t v) {
     uint8_t shifted = (v <= MATRIX_BLACK_SHIFT) ? 0 :
             (uint8_t) (((uint16_t) (v - MATRIX_BLACK_SHIFT) * 255) / (255 - MATRIX_BLACK_SHIFT));
     uint8_t full_curve = (uint8_t) (((uint16_t) shifted * shifted) / 255);
-    return (uint8_t) (((uint16_t) shifted + 3 * (uint16_t) full_curve) / 4) / 3;
+    uint16_t blended = (uint16_t) shifted * (MATRIX_CONTRAST_CURVE_DEN - MATRIX_CONTRAST_CURVE_NUM)
+                      + (uint16_t) full_curve * MATRIX_CONTRAST_CURVE_NUM;
+    return (uint8_t) (blended / MATRIX_CONTRAST_CURVE_DEN);
 }
 
 static void matrix_show_frame(const uint8_t *view) {
     enum { BLOCK_W = SCREENWIDTH / WS2812_MATRIX_WIDTH, BLOCK_H = MAIN_VIEWHEIGHT / WS2812_MATRIX_HEIGHT };
+    enum { BLOCK_N = BLOCK_W * BLOCK_H }; // texels per output pixel (840)
     for (int cy = 0; cy < WS2812_MATRIX_HEIGHT; cy++) {
         for (int cx = 0; cx < WS2812_MATRIX_WIDTH; cx++) {
-            uint32_t rsum = 0, gsum = 0, bsum = 0;
+            // Sums of squares, not values -- see point 2/3 above. Max
+            // possible value here is BLOCK_N * 255 * 255 =~ 54.6M, nowhere
+            // near overflowing uint32_t.
+            uint32_t rsq = 0, gsq = 0, bsq = 0;
             for (int y = 0; y < BLOCK_H; y++) {
                 const uint8_t *row = view + (cy * BLOCK_H + y) * SCREENWIDTH + cx * BLOCK_W;
                 for (int x = 0; x < BLOCK_W; x++) {
@@ -1290,27 +1364,19 @@ static void matrix_show_frame(const uint8_t *view) {
                     uint8_t r5 = (p >> PICO_SCANVIDEO_PIXEL_RSHIFT) & 0x1f;
                     uint8_t g5 = (p >> PICO_SCANVIDEO_PIXEL_GSHIFT) & 0x1f;
                     uint8_t b5 = (p >> PICO_SCANVIDEO_PIXEL_BSHIFT) & 0x1f;
-                    rsum += (r5 << 3) | (r5 >> 2); // 5 -> 8 bit
-                    gsum += (g5 << 3) | (g5 >> 2);
-                    bsum += (b5 << 3) | (b5 >> 2);
+                    uint8_t r8 = (r5 << 3) | (r5 >> 2); // 5 -> 8 bit
+                    uint8_t g8 = (g5 << 3) | (g5 >> 2);
+                    uint8_t b8 = (b5 << 3) | (b5 >> 2);
+                    rsq += (uint32_t) r8 * r8;
+                    gsq += (uint32_t) g8 * g8;
+                    bsq += (uint32_t) b8 * b8;
                 }
             }
-            const int n = BLOCK_W * BLOCK_H;
-            uint8_t r = matrix_contrast(rsum / n);
-            uint8_t g = matrix_contrast(gsum / n);
-            uint8_t b = matrix_contrast(bsum / n);
-            // REVERTED (confirmed too dark on hardware -- with
-            // MATRIX_BRIGHTNESS_LIMIT this small, only near-white input
-            // survived the divide at all, "only a couple of red pixels, all
-            // else dark"): tried scaling 0-255 down to 0-LIMIT uniformly
-            // here instead of letting ws2812_matrix_set_pixel() do its own
-            // per-pixel peak-normalization. That approach is more "correct"
-            // (preserves relative brightness instead of boosting everything
-            // non-black up to the ceiling) but needs much more headroom in
-            // MATRIX_BRIGHTNESS_LIMIT than 2 to avoid collapsing most of the
-            // frame to 0. Passing the contrast-curve output straight through
-            // and letting set_pixel's own normalization brighten it back up
-            // is what actually produced a visible image on hardware.
+            // Single divide-and-sqrt per channel here -- the RMS average --
+            // rather than one per texel.
+            uint8_t r = matrix_contrast((uint8_t) matrix_isqrt(rsq / BLOCK_N));
+            uint8_t g = matrix_contrast((uint8_t) matrix_isqrt(gsq / BLOCK_N));
+            uint8_t b = matrix_contrast((uint8_t) matrix_isqrt(bsq / BLOCK_N));
             // Mirrored left-to-right on the physical panel (confirmed on
             // hardware) -- flip the destination column while still reading
             // the source left-to-right.

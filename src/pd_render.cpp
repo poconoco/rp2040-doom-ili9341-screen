@@ -2972,9 +2972,12 @@ extern "C" void matrix_checkpoint_now(uint8_t n); // core1-only immediate displa
 // that a single lump delay at the outer core1() loop boundary did not.
 // 100ms/stage (~700ms/frame) worked but felt very sluggish (demo autostart
 // especially); 10ms/stage was NOT enough and froze again; 40ms/stage played
-// (if slowly). Nudging back down toward the too-low end to find the real
-// minimum.
-#define MATRIX_HANDSHAKE_PACE() sleep_ms(24)
+// (if slowly); 24ms/stage worked; 16ms/stage confirmed working too; 12ms/
+// stage froze again (confirmed on hardware). So the real minimum sits
+// somewhere in (12, 16] ms -- 16ms is the last confirmed-working value and
+// what this is set back to; if narrowing further ever matters, that's the
+// remaining gap to bisect, not down toward 12 again.
+#define MATRIX_HANDSHAKE_PACE() sleep_ms(16)
 #else
 #define MATRIX_HANDSHAKE_PACE()
 #endif

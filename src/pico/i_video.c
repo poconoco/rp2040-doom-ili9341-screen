@@ -1298,16 +1298,15 @@ void __attribute__((naked)) isr_debugmonitor(void) {
 // 4. Black-point shift: crush anything at or below MATRIX_BLACK_SHIFT to
 //    true 0, then stretch the remaining range back out to fill 0-255 --
 //    "shift blacks to start earlier", so dim-but-not-really-dark input
-//    actually reads as off instead of a faint glow. Confirmed necessary on
-//    real hardware: without it, no pixel ever reads as true black. Kept
-//    deliberately low, though -- this is a hard cliff (everything at or
-//    below it is forced to exactly 0), and pushing it up to add contrast
-//    was crushing too much legitimately-dim (not actually black) content
-//    with it. The curve below has its own, much gentler shadow rolloff
-//    (small inputs curve toward 0 on their own, being squared) -- that's
-//    the right tool for "make shadows read darker", this constant is only
-//    for "make true black actually black".
-#define MATRIX_BLACK_SHIFT 15
+//    actually reads as off instead of a faint glow. This was a hard cliff
+//    (everything at or below it forced to exactly 0) that kept crushing
+//    legitimately-dim (not actually black) content the more it was raised
+//    to fight for contrast, so it's disabled now (0 -- the (v-0)*255/255
+//    stretch below is then just v unchanged, a no-op, rather than a special
+//    case). True black now only happens for genuinely-black source pixels,
+//    or wherever MATRIX_CONTRAST_GAMMA's own curve happens to round a small
+//    input down to 0 on its own -- both real, not an artificial floor.
+#define MATRIX_BLACK_SHIFT 0
 // 5. The gamma-ish contrast curve after that black-point shift used to be a
 //    blend between the plain (linear) black-point-stretched value and a
 //    compressive "gamma 2" curve (shifted squared) -- a 50/50 blend read as
